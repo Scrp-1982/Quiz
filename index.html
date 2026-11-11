@@ -161,6 +161,14 @@ summary{cursor:pointer;font-weight:600}
 .auth-tabs{display:flex;border:2px solid var(--line);border-radius:10px;overflow:hidden}
 .auth-tabs button{flex:1;border:0;background:#0F1420;padding:10px;font-weight:600;cursor:pointer}
 .auth-tabs button[aria-selected="true"]{background:var(--hot);color:#160A02}
+.btabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:2px solid var(--line);padding-bottom:0;margin-bottom:18px}
+.btabs button{border:0;background:transparent;color:var(--muted);padding:10px 14px;font-family:var(--display);font-weight:700;font-size:1.1rem;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+.btabs button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--hot)}
+.qrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
+.qrow:first-of-type{border-top:0}
+.qrow .info{flex:1;min-width:200px}
+.qrow .acties{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.vakkop{display:flex;align-items:center;gap:10px;margin-top:8px}
 .inv{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
 .inv:first-child{border-top:0}
 .avatars{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:8px}
@@ -242,7 +250,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-11.12";
+const VERSIE = "2026-11-11.14";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -296,6 +304,12 @@ function h(tag, attrs, ...kids){
   for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
   return el;
 }
+// Unieke naam voor een bestand; werkt ook zonder https (crypto.randomUUID kan dat niet)
+function uniekId(){
+  const b = new Uint8Array(16);
+  if (window.crypto?.getRandomValues) crypto.getRandomValues(b); else for (let i=0;i<16;i++) b[i] = Math.random()*256|0;
+  return Date.now().toString(36) + "-" + [...b].map(x => x.toString(16).padStart(2,"0")).join("");
+}
 const nl = n => Number(n||0).toLocaleString("nl-NL");
 const shuffle = a => { a = a.slice(); for (let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
 const datum = d => new Date(d).toLocaleDateString("nl-NL",{day:"numeric",month:"short"}) + " " + new Date(d).toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"});
@@ -320,8 +334,8 @@ const toets = id => S.toetsen.find(t => t.id == id);
 const toetsOnderwerpen = tid => S.toetsOw.filter(x => x.toets_id == tid).map(x => x.onderwerp_id);
 // titel, emoji, adres en vak van de bron van een ronde (onderwerp of toets)
 function bronVan(r){
-  if (r.toets_id){ const t = toets(r.toets_id); return { titel: t?.titel || "Toets", emoji: t?.emoji || "📝", hash: t ? "#toets/"+t.id : null, vak: t?.vak_id }; }
-  const o = onderwerp(r.onderwerp_id); return { titel: o?.titel || "Onderwerp", emoji: o?.emoji || "📘", hash: o ? "#onderwerp/"+o.id : null, vak: o?.vak_id };
+  if (r.toets_id){ const t = toets(r.toets_id); return { titel: t?.titel || "Eindtoets", emoji: t?.emoji || "📝", hash: t ? "#toets/"+t.id : null, vak: t?.vak_id }; }
+  const o = onderwerp(r.onderwerp_id); return { titel: o?.titel || "Quiz", emoji: o?.emoji || "📘", hash: o ? "#onderwerp/"+o.id : null, vak: o?.vak_id };
 }
 const fotoUrl = pad => `${SUPABASE_URL}/storage/v1/object/public/avatars/${pad.split("/").map(encodeURIComponent).join("/")}`;
 // profielfoto (of emoji) van een speler
@@ -407,8 +421,10 @@ async function route(){
       case "speler": return viewSpeler(id);
       case "ronde": return viewRonde(id);
       case "profiel": return viewProfiel();
-      case "beheer": return viewBeheer();
-      case "overzicht": return id ? viewOverzichtSpeler(id) : viewOverzicht();
+      case "beheer": return viewBeheer(id || "quizzen");
+      case "quiz-nieuw": return viewFotos({ vakId:id });
+      case "eindtoets-nieuw": return viewToetsForm({ vakId:id });
+      case "overzicht": return id ? viewOverzichtSpeler(id) : go("#beheer/gebruikers");
       case "spelen": return S.ronde ? null : go(S.terug || "#");
       case "toets": return viewToets(id);
       case "toets-nieuw": return viewToetsForm({ vakId:id });
@@ -506,7 +522,7 @@ function viewHome(){
   const tegels = S.vakken.map(v => {
     const n = S.onderwerpen.filter(o => o.vak_id === v.id && (o.zichtbaar || isBeheerder())).length;
     return h("button",{class:"tile",style:`--c:${v.kleur}`,onclick:()=>go("#vak/"+v.id)},
-      vakIcoon(v), h("h3",null,v.naam), h("div",{class:"small"}, n === 1 ? "1 onderwerp" : `${n} onderwerpen`));
+      vakIcoon(v), h("h3",null,v.naam), h("div",{class:"small"}, n === 1 ? "1 quiz" : `${n} quizzen`));
   });
   if (isBeheerder()) tegels.push(h("button",{class:"tile add",onclick:()=>go("#vak-nieuw")}, h("div",{class:"emo"},"➕"), h("h3",null,"Nieuw vak")));
   const leeg = !S.vakken.length ? h("div",{class:"card empty stack"}, h("div",{class:"emo"},"📚"), h("h3",null,"Nog geen vakken"),
@@ -524,14 +540,14 @@ function komendeToetsen(){
   const lijst = S.toetsen.filter(t => t.zichtbaar && dagenTot(t.datum) != null && dagenTot(t.datum) >= 0 && dagenTot(t.datum) <= 21);
   if (!lijst.length) return null;
   return h("div",{class:"card stack",style:"margin-top:18px;border-color:var(--hot)"},
-    h("h3",null,"📅 Komende toetsen"),
+    h("h3",null,"📅 Komende eindtoetsen"),
     h("div",null, lijst.map(t => { const v = vak(t.vak_id); return h("div",{class:"row clickrow",style:"padding:6px 0",onclick:()=>go("#toets/"+t.id)},
       h("span",{style:"font-size:1.6rem"},t.emoji), h("div",{style:"flex:1"}, h("strong",null,t.titel), h("div",{class:"muted small"},(v?.naam||"")+" · "+toetsDatumTekst(t.datum))),
       h("span",{class:"btn green"},"Oefenen")); })));
 }
 async function verwijderVak(v, terug){
   const ow = S.onderwerpen.filter(o => o.vak_id === v.id).length, te = S.toetsen.filter(t => t.vak_id === v.id).length;
-  const extra = ow || te ? `\n\nDaarmee verdwijnen ook ${ow} onderwerp(en) en ${te} toets(en), met alle vragen en scores.` : "";
+  const extra = ow || te ? `\n\nDaarmee verdwijnen ook ${ow} quiz(zen) en ${te} eindtoets(en), met alle vragen en scores.` : "";
   if (!confirm(`Het vak “${v.naam}” verwijderen?${extra}`)) return;
   if ((ow || te) && prompt(`Typ de naam van het vak (${v.naam}) om het verwijderen te bevestigen:`)?.trim().toLowerCase() !== v.naam.toLowerCase()) return toast("Niet verwijderd: de naam klopte niet.");
   const { data: fotos } = await sb.from("onderwerp_fotos").select("pad, onderwerpen!inner(vak_id)").eq("onderwerpen.vak_id", v.id);
@@ -681,33 +697,42 @@ function viewVak(id){
     return h("button",{class:"card topic",style:"border-color:var(--hot)",onclick:()=>go("#toets/"+t.id)},
       h("div",{class:"emo","aria-hidden":"true"},t.emoji), h("h3",null,t.titel),
       !t.zichtbaar ? h("div",null,h("span",{class:"tag prop"},"🙈 Nog niet vrijgegeven")) : null,
-      h("div",{class:"muted small"}, [`${n} ${n===1?"onderwerp":"onderwerpen"}`, toetsDatumTekst(t.datum)].filter(Boolean).join(" · ")),
+      h("div",{class:"muted small"}, [`${n} ${n===1?"quiz":"quizzen"}`, toetsDatumTekst(t.datum)].filter(Boolean).join(" · ")),
       h("div",{class:"best"}, b ? `🏆 ${nl(b)}` : "Nog niet geoefend"));
   });
   render(h("div",{class:"stack"},
     h("div",{class:"row"}, h("div",{class:"vakbadge",style:`background:${v.kleur}`}, v.icoon ? h("img",{src:icoonUrl(v.icoon),alt:""}) : v.emoji), h("h2",null,v.naam),
       isBeheerder() ? h("button",{class:"btn link",style:"margin-left:auto",onclick:()=>go("#vak-bewerken/"+v.id)},"Vak bewerken") : null),
-    isBeheerder() ? h("div",{class:"row"}, h("button",{class:"btn green big",onclick:()=>go("#nieuw/"+v.id)},"📸 Nieuw onderwerp"),
-      h("button",{class:"btn big",onclick:()=>go("#toets-nieuw/"+v.id)},"📝 Nieuwe toets")) : null,
-    toetsKaarten.length ? h("h3",null,"📝 Toetsen") : null,
+    isBeheerder() ? h("div",{class:"row"}, h("button",{class:"btn green big",onclick:()=>go("#quiz-nieuw/"+v.id)},"🧩 Nieuwe quiz"),
+      h("button",{class:"btn big",onclick:()=>go("#eindtoets-nieuw/"+v.id)},"📝 Nieuwe eindtoets")) : null,
+    toetsKaarten.length ? h("h3",null,"📝 Eindtoetsen") : null,
     toetsKaarten.length ? h("div",{class:"grid"},toetsKaarten) : null,
-    toetsKaarten.length && lijst.length ? h("h3",null,"📖 Onderwerpen") : null,
+    toetsKaarten.length && lijst.length ? h("h3",null,"🧩 Quizzen") : null,
     lijst.length ? h("div",{class:"grid"},kaarten)
-      : h("div",{class:"card empty"}, h("div",{class:"emo"},"📖"), h("h3",null,"Nog geen onderwerpen"),
-          h("p",{class:"muted"}, isBeheerder() ? "Maak foto’s van een hoofdstuk om te beginnen." : "De beheerder heeft hier nog niets klaargezet."))));
+      : h("div",{class:"card empty"}, h("div",{class:"emo"},"📖"), h("h3",null,"Nog geen quizzen"),
+          h("p",{class:"muted"}, isBeheerder() ? "Maak een quiz met foto’s van een hoofdstuk om te beginnen." : "De beheerder heeft hier nog niets klaargezet."))));
 }
 
 /* ============ nieuw onderwerp / foto’s toevoegen (beheer) ============ */
 function viewFotos({ vakId, onderwerpId }){
   if (!isBeheerder()) return viewMfa(location.hash);
   const bestaand = onderwerpId ? onderwerp(onderwerpId) : null;
-  const v = vak(bestaand ? bestaand.vak_id : vakId); if (!v) return go("#");
+  let v = vak(bestaand ? bestaand.vak_id : vakId) || null;
+  if (bestaand && !v) return go("#");
+  if (!S.vakken.length) return render(h("div",{class:"card stack"}, h("h2",null,"Nieuwe quiz"),
+    h("p",null,"Maak eerst een vak aan, dan kun je er quizzen in zetten."), h("div",null,h("button",{class:"btn green",onclick:()=>go("#beheer/vakken")},"Naar Vakken & icoontjes"))));
   const files = [];
+  let emojiAangepast = false;
   const titel = h("input",{type:"text",id:"ot",maxlength:"80",placeholder:"bijv. Hoofdstuk 3 – Rivieren"});
-  const emoji = h("input",{type:"text",id:"oe",value:v.emoji,maxlength:"8",style:"max-width:120px;font-size:1.4rem"});
+  const emoji = h("input",{type:"text",id:"oe",value:v?.emoji||"📘",maxlength:"8",style:"max-width:120px;font-size:1.4rem",oninput:()=>{emojiAangepast = true;}});
   const niveau = h("select",{id:"on"}, NIVEAUS.map(n => h("option",{value:n,selected:n==="Havo/vwo 1"},n)));
-  const soortKeuze = typeKeuze(v.taal ? Object.keys(VRAAGSOORTEN) : ["meerkeuze"]);
   const notities = h("textarea",{id:"oa",placeholder:"Optioneel: bijv. “alleen paragraaf 3.2”, “vooral de begrippen”, “toets gaat over de jaartallen”"});
+  const soortHouder = h("div");
+  let soortKeuze;
+  const zetSoorten = () => { soortKeuze = typeKeuze(v?.taal ? Object.keys(VRAAGSOORTEN) : ["meerkeuze"]); soortHouder.replaceChildren(soortKeuze); };
+  zetSoorten();
+  const vakKeuze = h("select",{id:"ov",onchange:e=>{ v = vak(e.target.value) || null; if (!emojiAangepast) emoji.value = v?.emoji || "📘"; zetSoorten(); }},
+    h("option",{value:""},"Kies een vak…"), S.vakken.map(x => h("option",{value:x.id,selected:v?.id===x.id}, x.emoji + " " + x.naam)));
   const thumbs = h("div",{class:"thumbs"});
   const msg = h("div");
   const kies = h("input",{type:"file",accept:"image/*",multiple:true,hidden:true,onchange:e=>{voegToe(e.target.files);e.target.value="";}});
@@ -724,12 +749,13 @@ function viewFotos({ vakId, onderwerpId }){
   }
   async function start(){
     msg.replaceChildren();
+    if (!bestaand && !v) return msg.replaceChildren(h("p",{class:"note err"},"Kies een vak."));
     if (!bestaand && !titel.value.trim()) return msg.replaceChildren(h("p",{class:"note err"},"Vul een titel in."));
     if (!files.length) return msg.replaceChildren(h("p",{class:"note err"},"Voeg minstens één foto toe."));
     let ow = bestaand;
     try {
       if (!ow){
-        laden("Onderwerp aanmaken…");
+        laden("Quiz aanmaken…");
         const { data, error } = await sb.from("onderwerpen").insert({ vak_id:v.id, titel:titel.value.trim(), emoji:emoji.value.trim()||v.emoji, niveau:niveau.value, notities:notities.value.trim()||null, vraagsoorten: soortKeuze.waarde().length ? soortKeuze.waarde() : ["meerkeuze"] }).select().single();
         if (error) throw error; ow = data;
       }
@@ -737,7 +763,7 @@ function viewFotos({ vakId, onderwerpId }){
       for (let i=0;i<files.length;i++){
         laden(`Foto ${i+1} van ${files.length} uploaden…`);
         const blob = await verklein(files[i]);
-        const pad = `${ow.id}/${crypto.randomUUID()}.jpg`;
+        const pad = `${ow.id}/${uniekId()}.jpg`;
         const { error } = await sb.storage.from("fotos").upload(pad, blob, { contentType:"image/jpeg" });
         if (error) throw error;
         const { error: e2 } = await sb.from("onderwerp_fotos").insert({ onderwerp_id: ow.id, pad });
@@ -747,31 +773,35 @@ function viewFotos({ vakId, onderwerpId }){
       laden("Gemini leest de bladzijden…","Dit duurt meestal 30 seconden tot 2 minuten. Laat dit scherm open.");
       const res = await roepFunctie({ actie:"fotos", onderwerp_id: ow.id, paden });
       await laadAlles();
-      S.flash = `${res.toegevoegd} nieuwe vragen gemaakt (${res.model}). Controleer ze hieronder en keur ze goed.` + (bestaand ? "" : " Geef het onderwerp daarna vrij, dan kunnen de spelers het zien.");
+      S.flash = `${res.toegevoegd} nieuwe vragen gemaakt (${res.model}). Controleer ze hieronder en keur ze goed.` + (bestaand ? "" : " Geef de quiz daarna vrij, dan kunnen de spelers hem zien.");
       go("#onderwerp/" + ow.id);
     } catch (e) {
       await laadAlles().catch(()=>{});
       if (ow && !bestaand) { S.flash = "⚠️ " + fout(e) + " Je kunt het opnieuw proberen met ‘Foto’s toevoegen’."; go("#onderwerp/" + ow.id); }
-      else { viewFotos({ vakId, onderwerpId }); toast(fout(e)); }
+      else { msg.replaceChildren(h("p",{class:"note err"},fout(e))); }
     }
   }
-  render(h("div",{class:"stack"},
-    h("h2",null, bestaand ? `Foto’s toevoegen aan “${bestaand.titel}”` : `Nieuw onderwerp bij ${v.naam}`),
+  render(h("div",{class:"stack",style:"max-width:720px"},
+    h("h2",null, bestaand ? `Foto’s toevoegen aan “${bestaand.titel}”` : "🧩 Nieuwe quiz"),
     bestaand ? null : h("div",{class:"card stack"},
-      h("div",null,h("label",{class:"f",for:"ot"},"Titel"),titel),
-      h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"oe"},"Emoji"),emoji), h("div",{style:"flex:1;min-width:220px"},h("label",{class:"f",for:"on"},"Niveau"),niveau)),
-      h("div",null,h("label",{class:"f",for:"oa"},"Waar moet de quiz op letten?"),notities),
-      h("div",null,h("span",{style:"font-weight:600;display:block;margin-bottom:6px"},"Soorten vragen"),soortKeuze)),
-    h("div",{class:"card"},
+      h("div",null,h("label",{class:"f",for:"ov"},"1. Vak"),vakKeuze),
+      h("div",null,h("label",{class:"f",for:"ot"},"2. Titel van de quiz"),titel)),
+    h("div",{class:"card stack"},
+      bestaand ? null : h("span",{class:"f",style:"font-weight:600"},"3. Foto’s van de bladzijden"),
       h("div",{class:"drop",tabindex:"0",role:"button",onclick:()=>kies.click(),onkeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();kies.click();}},
         ondragover:e=>e.preventDefault(),ondrop:e=>{e.preventDefault();voegToe(e.dataTransfer.files);}},
         h("div",{style:"font-size:2.2rem"},"🖼️"), h("strong",null,"Kies foto’s of sleep ze hierheen"),
-        h("div",{class:"muted small"},"Maximaal 10 foto’s per keer, één bladzijde per foto, recht van boven en met goed licht. Later kun je altijd meer foto’s toevoegen.")),
+        h("div",{class:"muted small"},"Maximaal 10 per keer, één bladzijde per foto, recht van boven en met goed licht.")),
       kies, camera,
-      h("div",{class:"row",style:"margin-top:12px"}, h("button",{class:"btn blue",onclick:()=>camera.click()},"📷 Foto maken")),
+      h("div",null, h("button",{class:"btn blue",onclick:()=>camera.click()},"📷 Foto maken")),
       thumbs),
+    bestaand ? null : h("details",null, h("summary",null,"Meer opties (niveau, emoji, soorten vragen, aanwijzingen)"),
+      h("div",{class:"stack",style:"margin-top:12px"},
+        h("div",{class:"row"}, h("div",{style:"flex:1;min-width:220px"},h("label",{class:"f",for:"on"},"Niveau"),niveau), h("div",null,h("label",{class:"f",for:"oe"},"Emoji"),emoji)),
+        h("div",null,h("span",{style:"font-weight:600;display:block;margin-bottom:6px"},"Soorten vragen"),soortHouder),
+        h("div",null,h("label",{class:"f",for:"oa"},"Waar moet de quiz op letten?"),notities))),
     msg,
-    h("div",{class:"row"}, h("button",{class:"btn green big",onclick:start},"✨ Laat Gemini de vragen maken"), h("button",{class:"btn link",onclick:()=>history.back()},"Annuleren"))));
+    h("div",{class:"row"}, h("button",{class:"btn green big",onclick:start},"✨ Maak de quiz"), h("button",{class:"btn link",onclick:()=>history.back()},"Annuleren"))));
 }
 async function verklein(file){
   try {
@@ -852,7 +882,7 @@ async function viewOnderwerp(id){
     flash ? h("p",{class: flash.startsWith("⚠️") ? "note err" : "note ok"},flash) : null,
     h("div",{class:"row"}, h("span",{style:"font-size:3rem","aria-hidden":"true"},o.emoji),
       h("div",null, h("h2",null,o.titel), h("div",{class:"muted"}, h("a",{href:"#vak/"+v.id,style:"color:inherit"},v.naam), ` · ${o.niveau} · ${actief.length} vragen`))),
-    !o.zichtbaar ? h("p",{class:"note warn"},"🙈 Dit onderwerp is nog niet vrijgegeven. Alleen beheerders zien het.") : null,
+    !o.zichtbaar ? h("p",{class:"note warn"},"🙈 Deze quiz is nog niet vrijgegeven. Alleen beheerders zien hem.") : null,
     ...speelPaneel("onderwerp", o.id, actief.length),
     inToetsen.length ? h("p",{class:"muted small"},"Hoort bij: ", inToetsen.map((t,i) => [i ? ", " : "", h("a",{href:"#toets/"+t.id},t.emoji+" "+t.titel)])) : null,
     isBeheerder() ? beheerOnderwerp(o, vragen, boek, extra) : null));
@@ -884,7 +914,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
     h("button",{class:"btn purple",onclick:()=>maak("extra","Gemini maakt vragen buiten het boek…")},"🌐 Vragen buiten het boek"),
     h("button",{class:"btn",onclick:()=>maak("varianten","Gemini bedenkt een andere vraagstelling voor de vragen die het vaakst gesteld zijn…")},"🔄 Andere vraagstelling"));
   const soortKeuze = typeKeuze(o.vraagsoorten || ["meerkeuze"]);
-  const soortenBlok = h("details",null, h("summary",null,"Soorten vragen voor dit onderwerp: " + (o.vraagsoorten||["meerkeuze"]).map(t => VRAAGSOORTEN[t]?.split(" ")[0]).join(" ")),
+  const soortenBlok = h("details",null, h("summary",null,"Soorten vragen voor deze quiz: " + (o.vraagsoorten||["meerkeuze"]).map(t => VRAAGSOORTEN[t]?.split(" ")[0]).join(" ")),
     h("div",{class:"stack",style:"margin-top:10px"}, soortKeuze,
       h("p",{class:"muted small"},"Geldt voor de volgende keer dat je Gemini vragen laat maken."),
       h("div",null,h("button",{class:"btn",onclick:async()=>{
@@ -908,12 +938,12 @@ function beheerOnderwerp(o, vragen, boek, extra){
       metKnoppen ? h("button",{class:"btn green",onclick:()=>zet([q.id],"actief")},"Goedkeuren") : null,
       h("button",{class:"btn link",onclick:()=>{ if (confirm("Deze vraag verwijderen?")) zet([q.id]); }},"Verwijderen")));
   return h("div",{class:"card stack",style:"border-style:dashed"},
-    h("h3",null,"⚙️ Beheer van dit onderwerp"),
+    h("h3",null,"⚙️ Beheer van deze quiz"),
     h("div",{class:"row"},
       o.zichtbaar
         ? h("button",{class:"btn",onclick:()=>zetZichtbaar("onderwerpen", o.id, false)},"🙈 Verbergen voor spelers")
         : h("button",{class:"btn green",onclick:()=>zetZichtbaar("onderwerpen", o.id, true)},"✅ Vrijgeven voor spelers"),
-      h("span",{class:"muted small"}, o.zichtbaar ? "Spelers kunnen dit onderwerp spelen." : "Spelers zien dit onderwerp nog niet.")),
+      h("span",{class:"muted small"}, o.zichtbaar ? "Spelers kunnen deze quiz spelen." : "Spelers zien deze quiz nog niet.")),
     h("p",{class:"muted small"},`${boek} vragen uit het boek en ${extra} vragen buiten het boek staan live (varianten meegeteld). Elke knop hieronder kost één verzoek bij Gemini; je hebt er ongeveer 20 per dag. ‘Andere vraagstelling’ maakt nieuwe versies van de vragen die het vaakst gesteld zijn, zodat spelers de stof leren en niet het antwoord onthouden.`),
     knoppen, msg, soortenBlok,
     voorstellen.length ? h("div",{class:"stack"},
@@ -933,7 +963,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
         const { error } = await sb.from("onderwerpen").delete().eq("id", o.id);
         if (error) return toast(fout(error));
         await laadAlles(); go("#vak/" + o.vak_id);
-      }},"Onderwerp verwijderen")));
+      }},"Quiz verwijderen")));
 }
 // lesstof pas laden als de beheerder het uitklapt
 document.addEventListener("toggle", async e => {
@@ -958,44 +988,58 @@ async function viewToets(id){
     h("div",{class:"row"}, h("span",{style:"font-size:3rem","aria-hidden":"true"},t.emoji),
       h("div",null, h("h2",null,t.titel), h("div",{class:"muted"}, h("a",{href:"#vak/"+v.id,style:"color:inherit"},v.naam), t.datum ? " · " + new Date(t.datum+"T00:00:00").toLocaleDateString("nl-NL",{weekday:"long",day:"numeric",month:"long"}) : ""))),
     t.datum && dagenTot(t.datum) >= 0 ? h("p",{class:"note warn"},"📅 " + toetsDatumTekst(t.datum).replace(/!$/,"") + ". Oefen elke dag een rondje, dan zit de stof erin.") : null,
-    !t.zichtbaar ? h("p",{class:"note warn"},"🙈 Deze toets is nog niet vrijgegeven. Alleen beheerders zien hem.") : null,
-    h("div",{class:"card"}, h("h3",null,"Deze toets gaat over"),
+    !t.zichtbaar ? h("p",{class:"note warn"},"🙈 Deze eindtoets is nog niet vrijgegeven. Alleen beheerders zien hem.") : null,
+    h("div",{class:"card"}, h("h3",null,"Deze eindtoets gaat over"),
       h("table",null,h("tbody",null, owIds.map(oid => { const o = onderwerp(oid);
         return h("tr",{class: o ? "clickrow" : null, onclick: o ? ()=>go("#onderwerp/"+o.id) : null},
-          h("td",null, o ? o.emoji+" "+o.titel : "Onderwerp (nog niet vrijgegeven)"), h("td",{class:"num muted"},`${tel.get(oid)||0} vragen`)); }))),
-      h("p",{class:"muted small"},"De vragen komen door elkaar uit al deze onderwerpen, ongeveer evenveel uit elk.")),
+          h("td",null, o ? o.emoji+" "+o.titel : "Quiz (nog niet vrijgegeven)"), h("td",{class:"num muted"},`${tel.get(oid)||0} vragen`)); }))),
+      h("p",{class:"muted small"},"De vragen komen door elkaar uit al deze quizzen, ongeveer evenveel uit elk.")),
     ...speelPaneel("toets", t.id, vragen.length),
     isBeheerder() ? h("div",{class:"card stack",style:"border-style:dashed"},
-      h("h3",null,"⚙️ Beheer van deze toets"),
+      h("h3",null,"⚙️ Beheer van deze eindtoets"),
       h("div",{class:"row"},
         t.zichtbaar ? h("button",{class:"btn",onclick:()=>zetZichtbaar("toetsen", t.id, false)},"🙈 Verbergen voor spelers")
                     : h("button",{class:"btn green",onclick:()=>zetZichtbaar("toetsen", t.id, true)},"✅ Vrijgeven voor spelers"),
         h("button",{class:"btn",onclick:()=>go("#toets-bewerken/"+t.id)},"✏️ Bewerken"),
         h("button",{class:"btn link",onclick:async()=>{
-          if (!confirm(`“${t.titel}” verwijderen? De onderwerpen en vragen blijven bestaan; alleen de toets en de scores ervan verdwijnen.`)) return;
+          if (!confirm(`“${t.titel}” verwijderen? De quizzen en vragen blijven bestaan; alleen de eindtoets en de scores ervan verdwijnen.`)) return;
           const { error } = await sb.from("toetsen").delete().eq("id", t.id);
           if (error) return toast(fout(error));
           await laadAlles(); go("#vak/"+t.vak_id);
-        }},"Toets verwijderen"))) : null));
+        }},"Eindtoets verwijderen"))) : null));
 }
 
 function viewToetsForm({ vakId, toetsId }){
   if (!isBeheerder()) return viewMfa(location.hash);
   const t = toetsId ? toets(toetsId) : null;
-  const v = vak(t ? t.vak_id : vakId); if (!v) return go("#");
+  let v = vak(t ? t.vak_id : vakId) || null;
+  if (t && !v) return go("#");
   const gekozen = new Set(t ? toetsOnderwerpen(t.id) : []);
   const titel = h("input",{type:"text",id:"tt",maxlength:"80",value:t?.titel||"",placeholder:"bijv. Eindtoets blok 2"});
   const emoji = h("input",{type:"text",id:"te",value:t?.emoji||"📝",maxlength:"8",style:"max-width:120px;font-size:1.4rem"});
   const dat = h("input",{type:"date",id:"td",value:t?.datum||"",style:"max-width:220px;border:2px solid var(--line);border-radius:8px;background:#0F1420;padding:10px 12px"});
-  const ows = S.onderwerpen.filter(o => o.vak_id === v.id);
-  const lijst = h("div",{class:"stack",style:"--gap:6px"}, ows.length ? ows.map(o => h("label",{class:"row",style:"cursor:pointer;margin-top:6px"},
-    h("input",{type:"checkbox",checked:gekozen.has(o.id),style:"width:22px;height:22px",onchange:e=>{ e.target.checked ? gekozen.add(o.id) : gekozen.delete(o.id); }}),
-    h("span",null,o.emoji+" "+o.titel), h("span",{class:"muted small"},`${o.aantal} vragen` + (o.zichtbaar ? "" : " · verborgen")))) : h("p",{class:"muted"},"Dit vak heeft nog geen onderwerpen."));
+  const lijst = h("div");
+  function tekenLijst(){
+    if (!v) return lijst.replaceChildren(h("p",{class:"muted"},"Kies eerst een vak."));
+    const ows = S.onderwerpen.filter(o => o.vak_id === v.id);
+    lijst.replaceChildren(...(ows.length ? [
+      h("div",{class:"row",style:"gap:6px;margin-bottom:6px"},
+        h("button",{class:"btn link",type:"button",onclick:()=>{ ows.forEach(o=>gekozen.add(o.id)); tekenLijst(); }},"Alles aanvinken"),
+        h("button",{class:"btn link",type:"button",onclick:()=>{ gekozen.clear(); tekenLijst(); }},"Niets")),
+      ...ows.map(o => h("label",{class:"row",style:"cursor:pointer;margin-top:6px"},
+        h("input",{type:"checkbox",checked:gekozen.has(o.id),style:"width:22px;height:22px",onchange:e=>{ e.target.checked ? gekozen.add(o.id) : gekozen.delete(o.id); }}),
+        h("span",null,o.emoji+" "+o.titel), h("span",{class:"muted small"},`${o.aantal} vragen` + (o.zichtbaar ? "" : " · verborgen"))))]
+      : [h("p",{class:"muted"},"Dit vak heeft nog geen quizzen.")]));
+  }
+  tekenLijst();
+  const vakKeuze = t ? null : h("select",{id:"tv",onchange:e=>{ v = vak(e.target.value) || null; gekozen.clear(); tekenLijst(); }},
+    h("option",{value:""},"Kies een vak…"), S.vakken.map(x => h("option",{value:x.id,selected:v?.id===x.id}, x.emoji + " " + x.naam)));
   const msg = h("div");
   async function opslaan(){
+    if (!v) return msg.replaceChildren(h("p",{class:"note err"},"Kies een vak."));
     const rij = { vak_id:v.id, titel:titel.value.trim(), emoji:emoji.value.trim()||"📝", datum: dat.value || null };
     if (!rij.titel) return msg.replaceChildren(h("p",{class:"note err"},"Vul een titel in."));
-    if (gekozen.size < 1) return msg.replaceChildren(h("p",{class:"note err"},"Kies minstens één onderwerp."));
+    if (gekozen.size < 1) return msg.replaceChildren(h("p",{class:"note err"},"Vink minstens één quiz aan."));
     let id = t?.id;
     if (t){ const { error } = await sb.from("toetsen").update(rij).eq("id", t.id); if (error) return msg.replaceChildren(h("p",{class:"note err"},fout(error))); }
     else { const { data, error } = await sb.from("toetsen").insert(rij).select().single(); if (error) return msg.replaceChildren(h("p",{class:"note err"},fout(error))); id = data.id; }
@@ -1003,14 +1047,15 @@ function viewToetsForm({ vakId, toetsId }){
     if (e1) return msg.replaceChildren(h("p",{class:"note err"},fout(e1)));
     const { error: e2 } = await sb.from("toets_onderwerpen").insert([...gekozen].map(oid => ({ toets_id:id, onderwerp_id:oid })));
     if (e2) return msg.replaceChildren(h("p",{class:"note err"},fout(e2)));
-    await laadAlles(); go("#toets/"+id);
+    await laadAlles(); toast(t ? "Eindtoets opgeslagen." : "Eindtoets gemaakt. Geef hem vrij als hij klaar is."); go("#beheer/quizzen");
   }
-  render(h("div",{class:"card stack",style:"max-width:620px"},
-    h("h2",null, t ? "Toets bewerken" : `Nieuwe toets bij ${v.naam}`),
-    h("div",null,h("label",{class:"f",for:"tt"},"Titel"),titel),
-    h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"te"},"Emoji"),emoji), h("div",null,h("label",{class:"f",for:"td"},"Datum van de toets (optioneel)"),dat)),
-    h("div",null, h("span",{style:"font-weight:600;display:block"},"Welke onderwerpen vallen eronder?"), lijst),
-    t ? null : h("p",{class:"muted small"},"Een nieuwe toets is eerst verborgen. Geef hem vrij op de pagina van de toets."),
+  render(h("div",{class:"card stack",style:"max-width:640px"},
+    h("h2",null, t ? "Eindtoets bewerken" : "📝 Nieuwe eindtoets"),
+    h("p",{class:"muted small"},"Een eindtoets combineert quizzen uit één vak. De speler krijgt vragen door elkaar uit alle aangevinkte quizzen."),
+    t ? h("p",null,"Vak: ", h("strong",null,v.naam)) : h("div",null,h("label",{class:"f",for:"tv"},"1. Vak"),vakKeuze),
+    h("div",null,h("label",{class:"f",for:"tt"},(t ? "" : "2. ") + "Titel"),titel),
+    h("div",null, h("span",{style:"font-weight:600;display:block"},(t ? "" : "3. ") + "Welke quizzen horen erbij?"), lijst),
+    h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"td"},"Datum van de toets (optioneel)"),dat), h("div",null,h("label",{class:"f",for:"te"},"Emoji"),emoji)),
     msg,
     h("div",{class:"row"}, h("button",{class:"btn green big",onclick:opslaan},"Opslaan"), h("button",{class:"btn link",onclick:()=>history.back()},"Annuleren"))));
 }
@@ -1266,7 +1311,7 @@ async function viewRonde(id){
     h("h2",null, `${b.emoji} ${b.titel}`),
     h("p",{class:"muted"}, spelerNaam(p, 24), ` · ${datum(r.gespeeld_op)} · ${DIFF[r.moeilijkheid].sterren} ${DIFF[r.moeilijkheid].naam} · ${r.goed}/${r.totaal} goed · ${nl(r.score)} punten`),
     h("div",{class:"card"}, reviewLijst(r.antwoorden||[])),
-    b.hash ? h("button",{class:"btn",onclick:()=>go(b.hash)}, r.toets_id ? "Naar deze toets" : "Naar dit onderwerp") : null));
+    b.hash ? h("button",{class:"btn",onclick:()=>go(b.hash)}, r.toets_id ? "Naar deze eindtoets" : "Naar deze quiz") : null));
 }
 
 /* ============ scorebord ============ */
@@ -1374,24 +1419,90 @@ async function vierkanteFoto(file){
 }
 
 /* ============ beheer ============ */
-async function viewBeheer(){
+async function viewBeheer(tab = "quizzen"){
   if (!isBeheerderRol()) return go("#");
-  if (!isBeheerder()) return viewMfa("#beheer");
-  const telRondes = id => S.rondes.filter(r=>r.speler_id===id).length;
-  const { data: uitnodigingen } = await sb.from("uitnodigingen").select("*").order("aangemaakt",{ascending:false});
-  const open = (uitnodigingen||[]).filter(u => !u.gebruikt_op);
+  if (!isBeheerder()) return viewMfa("#beheer/" + tab);
+  const TABS = [["quizzen","🧩 Quizzen"],["vakken","📚 Vakken & icoontjes"],["gebruikers","👥 Gebruikers"]];
+  if (!TABS.some(t => t[0] === tab)) tab = "quizzen";
+  const tabs = h("div",{class:"btabs",role:"tablist"}, TABS.map(([k,t]) => h("button",{role:"tab","aria-selected":String(k===tab),onclick:()=>go("#beheer/"+k)},t)));
+  laden("Laden…");
+  const inhoud = tab === "quizzen" ? await beheerQuizzen() : tab === "vakken" ? await beheerVakken() : await beheerGebruikers();
+  render(h("h2",null,"⚙️ Beheer"), h("div",{style:"height:10px"}), tabs, inhoud);
+}
+
+const vakBadge = (v, maat = 40) => h("div",{class:"vakbadge",style:`background:${v.kleur};width:${maat}px;height:${maat}px;font-size:${Math.round(maat*.55)}px`},
+  v.icoon ? h("img",{src:icoonUrl(v.icoon),alt:"",style:`max-width:${Math.round(maat*.72)}px;max-height:${Math.round(maat*.8)}px`}) : v.emoji);
+
+/* --- tab Quizzen --- */
+async function beheerQuizzen(){
+  if (!S.vakken.length) return h("div",{class:"card stack"}, h("p",null,"Er zijn nog geen vakken. Maak eerst een vak aan."),
+    h("div",null,h("button",{class:"btn green",onclick:()=>go("#beheer/vakken")},"Naar Vakken & icoontjes")));
+  const { data: vr } = await sb.from("vragen").select("onderwerp_id, status");
+  const tel = new Map();
+  for (const q of vr || []){ const x = tel.get(q.onderwerp_id) || { actief:0, voorstel:0 }; x[q.status]++; tel.set(q.onderwerp_id, x); }
+  const status = (zichtbaar) => zichtbaar ? h("span",{class:"tag",style:"background:var(--good);border-color:var(--good);color:#04160A"},"✅ Vrijgegeven") : h("span",{class:"tag prop"},"🙈 Verborgen");
+  const wissel = (tabel, x) => h("button",{class:"btn link",onclick:()=>zetZichtbaar(tabel, x.id, !x.zichtbaar)}, x.zichtbaar ? "Verbergen" : "Vrijgeven");
+  const perVak = S.vakken.map(v => {
+    const qs = S.onderwerpen.filter(o => o.vak_id === v.id);
+    const ts = S.toetsen.filter(t => t.vak_id === v.id);
+    return h("div",{class:"card"},
+      h("div",{class:"vakkop"}, vakBadge(v), h("h3",{style:"flex:1"},v.naam),
+        h("button",{class:"btn link",onclick:()=>go("#quiz-nieuw/"+v.id)},"+ Quiz"),
+        h("button",{class:"btn link",onclick:()=>go("#eindtoets-nieuw/"+v.id)},"+ Eindtoets")),
+      qs.length || ts.length ? h("div",{style:"margin-top:8px"},
+        ...ts.map(t => h("div",{class:"qrow"},
+          h("span",{style:"font-size:1.6rem"},t.emoji),
+          h("div",{class:"info"}, h("strong",null,t.titel), " ", h("span",{class:"tag",style:"background:var(--hot);border-color:var(--hot);color:#160A02"},"Eindtoets"),
+            h("div",{class:"muted small"}, [`${toetsOnderwerpen(t.id).length} quizzen`, t.datum ? new Date(t.datum+"T00:00:00").toLocaleDateString("nl-NL",{day:"numeric",month:"short"}) : null].filter(Boolean).join(" · "))),
+          h("div",{class:"acties"}, status(t.zichtbaar), wissel("toetsen", t),
+            h("button",{class:"btn link",onclick:()=>go("#toets-bewerken/"+t.id)},"Bewerken"),
+            h("button",{class:"btn",onclick:()=>go("#toets/"+t.id)},"Openen")))),
+        ...qs.map(o => { const n = tel.get(o.id) || { actief:0, voorstel:0 };
+          return h("div",{class:"qrow"},
+            h("span",{style:"font-size:1.6rem"},o.emoji),
+            h("div",{class:"info"}, h("strong",null,o.titel),
+              h("div",{class:"muted small"}, `${n.actief} vragen live`, n.voorstel ? h("span",{class:"tag prop",style:"margin-left:8px"},`${n.voorstel} te controleren`) : null)),
+            h("div",{class:"acties"}, status(o.zichtbaar), wissel("onderwerpen", o),
+              h("button",{class:"btn",onclick:()=>go("#onderwerp/"+o.id)}, n.voorstel ? "Controleren" : "Openen"))); }))
+      : h("p",{class:"muted small",style:"margin-top:8px"},"Nog geen quizzen in dit vak."));
+  });
+  return h("div",{class:"stack"},
+    h("div",{class:"row"},
+      h("button",{class:"btn green big",onclick:()=>go("#quiz-nieuw")},"🧩 Nieuwe quiz"),
+      h("button",{class:"btn big",onclick:()=>go("#eindtoets-nieuw")},"📝 Nieuwe eindtoets")),
+    h("p",{class:"muted small"},"Nieuwe quiz: kies het vak, geef een titel en upload de foto’s. Gemini maakt de vragen; daarna controleer je ze en geef je de quiz vrij. Een eindtoets combineert bestaande quizzen uit één vak."),
+    ...perVak);
+}
+
+/* --- tab Vakken & icoontjes --- */
+async function beheerVakken(){
   const { data: iconenLijst } = await sb.storage.from("iconen").list("", { limit:200, sortBy:{ column:"name", order:"asc" } });
   const plaatjes = (iconenLijst||[]).filter(x => x.name?.endsWith(".png")).map(x => x.name);
-  const plaatjesBlok = h("div",{class:"card stack"},
-    h("h3",null,"🖼️ Plaatjes"),
-    h("p",{class:"muted small"},"Alle plaatjes voor de vaktegels. Een nieuw plaatje upload je bij Vak bewerken."),
-    plaatjes.length ? h("div",{class:"plaatjes"}, plaatjes.map(pad => { const bij = S.vakken.filter(v => v.icoon === pad);
-      return h("div",{class:"plaatje"},
-        h("div",{class:"vb",style: bij[0] ? `background:${bij[0].kleur}` : null}, h("img",{src:icoonUrl(pad),alt:""})),
-        h("div",{class:"small"}, bij.length ? "Bij: " + bij.map(v=>v.naam).join(", ") : h("span",{class:"muted"},"Niet in gebruik")),
-        h("div",{class:"naam"}, pad),
-        h("button",{class:"btn link",onclick:async()=>{ if (await verwijderIcoon(pad)) viewBeheer(); }},"Verwijderen")); }))
-    : h("p",{class:"muted"},"Nog geen plaatjes geüpload."));
+  return h("div",{class:"stack"},
+    h("div",{class:"card stack"},
+      h("div",{class:"row"}, h("h3",{style:"flex:1"},"Vakken"), h("button",{class:"btn green",onclick:()=>go("#vak-nieuw")},"➕ Nieuw vak")),
+      S.vakken.length ? h("table",null, h("tbody",null, S.vakken.map(v => h("tr",null,
+        h("td",{style:"width:56px"}, vakBadge(v, 44)),
+        h("td",null, h("strong",null,v.naam), v.taal ? h("div",{class:"muted small"},"Taalvak") : null),
+        h("td",{class:"num muted small"}, `${S.onderwerpen.filter(o=>o.vak_id===v.id).length} quizzen`),
+        h("td",{class:"num"}, h("button",{class:"btn link",onclick:()=>go("#vak-bewerken/"+v.id)},"Bewerken"),
+          h("button",{class:"btn link",onclick:()=>verwijderVak(v, "#beheer/vakken")},"Verwijderen"))))))
+      : h("div",{class:"stack"}, h("p",{class:"muted"},"Nog geen vakken."), h("div",null,h("button",{class:"btn",onclick:standaardVakken},"Standaardvakken toevoegen")))),
+    h("div",{class:"card stack"},
+      h("h3",null,"🖼️ Icoontjes"),
+      h("p",{class:"muted small"},"Een nieuw icoontje upload je bij Bewerken van een vak. Hier zie je ze allemaal en kun je ze opruimen."),
+      plaatjes.length ? h("div",{class:"plaatjes"}, plaatjes.map(pad => { const bij = S.vakken.filter(v => v.icoon === pad);
+        return h("div",{class:"plaatje"},
+          h("div",{class:"vb",style: bij[0] ? `background:${bij[0].kleur}` : null}, h("img",{src:icoonUrl(pad),alt:""})),
+          h("div",{class:"small"}, bij.length ? "Bij: " + bij.map(v=>v.naam).join(", ") : h("span",{class:"muted"},"Niet in gebruik")),
+          h("button",{class:"btn link",onclick:async()=>{ if (await verwijderIcoon(pad)) viewBeheer("vakken"); }},"Verwijderen")); }))
+      : h("p",{class:"muted"},"Nog geen icoontjes geüpload.")));
+}
+
+/* --- tab Gebruikers --- */
+async function beheerGebruikers(){
+  const { data: uitnodigingen } = await sb.from("uitnodigingen").select("*").order("aangemaakt",{ascending:false});
+  const open = (uitnodigingen||[]).filter(u => !u.gebruikt_op);
   const invEmail = h("input",{type:"email",id:"ie",placeholder:"naam@voorbeeld.nl"});
   const invNaam = h("input",{type:"text",id:"in",maxlength:"36",placeholder:"bijv. Daan"});
   const invMsg = h("div");
@@ -1401,37 +1512,30 @@ async function viewBeheer(){
     const { error } = await sb.from("uitnodigingen").upsert({ email, naam, gebruikt_op:null }, { onConflict:"email" });
     if (error) return invMsg.replaceChildren(h("p",{class:"note err"},fout(error)));
     mailUitnodiging(email, naam);
-    viewBeheer();
+    viewBeheer("gebruikers");
   }
-  render(h("div",{class:"stack"},
-    h("h2",null,"⚙️ Beheer"),
-    h("div",{class:"card stack"},
-      h("h3",null,"Vakken"),
-      h("p",{class:"muted small"},"Onderwerpen, toetsen en foto’s voeg je toe vanuit het vak zelf."),
-      S.vakken.length ? h("table",null, h("tbody",null, S.vakken.map(v => h("tr",null,
-        h("td",{style:"width:60px"}, h("div",{class:"vakbadge",style:`background:${v.kleur};width:44px;height:44px;font-size:1.5rem`}, v.icoon ? h("img",{src:icoonUrl(v.icoon),alt:"",style:"max-width:32px;max-height:36px"}) : v.emoji)),
-        h("td",null, h("strong",null,v.naam), v.taal ? h("div",{class:"muted small"},"Taalvak") : null),
-        h("td",{class:"num muted small"}, `${S.onderwerpen.filter(o=>o.vak_id===v.id).length} onderwerpen`),
-        h("td",{class:"num"}, h("button",{class:"btn link",onclick:()=>go("#vak-bewerken/"+v.id)},"Bewerken"),
-          h("button",{class:"btn link",onclick:()=>verwijderVak(v, "#beheer")},"Verwijderen")))))) : null,
-      h("div",{class:"row"},
-        h("button",{class:"btn green",onclick:()=>go("#vak-nieuw")},"➕ Nieuw vak"),
-        !S.vakken.length ? h("button",{class:"btn",onclick:standaardVakken},"Standaardvakken toevoegen") : null)),
-    plaatjesBlok,
-    h("div",{class:"card stack"},
-      h("h3",null,"📊 Overzicht"),
-      h("p",{class:"muted small"},"Per speler: hoe vaak er gespeeld is, hoeveel vragen goed en fout gingen, welke vragen vaak fout gaan en welke vaak terugkomen."),
-      h("div",null,h("button",{class:"btn green",onclick:()=>go("#overzicht")},"Open het overzicht"))),
+  const rijen = S.profielen.map(p => {
+    const r = S.rondes.filter(x => x.speler_id === p.id);
+    const goed = r.reduce((t,x)=>t+x.goed,0), tot = r.reduce((t,x)=>t+x.totaal,0);
+    return { p, n:r.length, week:r.filter(x => Date.now()-new Date(x.gespeeld_op) < 7*864e5).length, pct: tot ? Math.round(goed/tot*100)+"%" : "–", laatst:r[0]?.gespeeld_op };
+  });
+  return h("div",{class:"stack"},
     h("div",{class:"card stack scroll"},
       h("h3",null,"Spelers"),
-      h("table",null, h("thead",null,h("tr",null,h("th",null,"App-naam"),h("th",null,"Rol"),h("th",{class:"num"},"Rondes"),h("th",null,""))),
-        h("tbody",null, S.profielen.map(p => h("tr",null,
-          h("td",{class:"clickrow",onclick:()=>go("#speler/"+p.id)},spelerNaam(p)), h("td",null,p.rol), h("td",{class:"num"},telRondes(p.id)),
-          h("td",{class:"num"}, h("button",{class:"btn link",onclick:()=>wijzigNaam(p)},"Naam wijzigen"),
-            p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${p.naam} verwijderen?`)) verwijderFoto(p); }},"Foto weg") : null)))))),
+      h("table",null,
+        h("thead",null,h("tr",null,h("th",null,"App-naam"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Deze week"),h("th",{class:"num"},"Goed"),h("th",null,"Laatst"),h("th",null,""))),
+        h("tbody",null, rijen.map(x => h("tr",null,
+          h("td",null, spelerNaam(x.p), x.p.rol === "beheerder" ? h("span",{class:"tag",style:"margin-left:8px"},"beheerder") : null),
+          h("td",{class:"num"},x.n), h("td",{class:"num"},x.week), h("td",{class:"num"},x.pct),
+          h("td",{class:"small muted"}, x.laatst ? datum(x.laatst) : "nog nooit"),
+          h("td",{class:"num"},
+            h("button",{class:"btn link",onclick:()=>go("#overzicht/"+x.p.id)},"Details"),
+            h("button",{class:"btn link",onclick:()=>wijzigNaam(x.p)},"Naam"),
+            x.p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${x.p.naam} verwijderen?`)) verwijderFoto(x.p); }},"Foto weg") : null))))),
+      h("p",{class:"muted small"},"Details: per quiz hoe het ging, welke vragen vaak fout gaan en welke vaak terugkomen.")),
     h("div",{class:"card stack"},
       h("h3",null,"✉️ Speler uitnodigen"),
-      h("p",{class:"muted small"},"Vul het e-mailadres in. Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app; dat verstuur je zelf. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
+      h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
       h("div",{class:"row"},
         h("div",{style:"flex:2;min-width:220px"},h("label",{class:"f",for:"ie"},"E-mailadres"),invEmail),
         h("div",{style:"flex:1;min-width:160px"},h("label",{class:"f",for:"in"},"Naam (voor in de mail)"),invNaam)),
@@ -1442,8 +1546,7 @@ async function viewBeheer(){
           h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email), h("div",{class:"muted small"}, (u.naam ? u.email + " · " : "") + "uitgenodigd op " + datum(u.aangemaakt))),
           h("button",{class:"btn",onclick:()=>mailUitnodiging(u.email, u.naam)},"Opnieuw mailen"),
           h("button",{class:"btn link",onclick:async()=>{ if (!confirm(`Uitnodiging voor ${u.email} intrekken?`)) return;
-            const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer(); }},"Intrekken")))) : null),
-    h("button",{class:"btn",onclick:async()=>{ await laadAlles(); toast("Gegevens vernieuwd."); viewBeheer(); }},"🔄 Gegevens vernieuwen")));
+            const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer("gebruikers"); }},"Intrekken")))) : null));
 }
 
 function mailUitnodiging(email, naam){
@@ -1480,7 +1583,7 @@ function viewOverzicht(){
       h("tbody",null, rijen.map(x => h("tr",{class:"clickrow",onclick:()=>go("#overzicht/"+x.p.id)},
         h("td",null,spelerNaam(x.p)), h("td",{class:"num"},x.rondes), h("td",{class:"num"},x.week), h("td",{class:"num"},nl(x.goed)), h("td",{class:"num"},nl(x.fout)),
         h("td",{class:"num"}, x.tot ? Math.round(x.goed/x.tot*100)+"%" : "–"), h("td",null, x.laatst ? datum(x.laatst) : "nog nooit")))))),
-    h("p",{class:"muted small"},"Tik op een speler voor de details per onderwerp en per vraag.")));
+    h("p",{class:"muted small"},"Tik op een speler voor de details per quiz en per vraag.")));
 }
 async function viewOverzichtSpeler(id){
   if (!isBeheerder()) return viewMfa(location.hash);
@@ -1509,7 +1612,7 @@ async function viewOverzichtSpeler(id){
   // "nog nooit gehad" per onderwerp telt ook de vragen mee die in toetsen langskwamen
   const gezienOveral = new Set(); for (const x of perOw.values()) for (const v of x.gezien) gezienOveral.add(v);
   const owRijen = [...perOw.entries()].map(([k,x]) => {
-    if (String(k).startsWith("t")){ const t = toets(String(k).slice(1)); return { o: t ? { emoji:t.emoji, titel:t.titel+" (toets)", hash:"#toets/"+t.id } : null, ...x, nooit:null, fams:0 }; }
+    if (String(k).startsWith("t")){ const t = toets(String(k).slice(1)); return { o: t ? { emoji:t.emoji, titel:t.titel+" (eindtoets)", hash:"#toets/"+t.id } : null, ...x, nooit:null, fams:0 }; }
     const fam = families.get(k) || new Map();
     const nooit = [...fam.values()].filter(ids => !ids.some(i => gezienOveral.has(i))).length;
     const o = onderwerp(k);
@@ -1526,17 +1629,17 @@ async function viewOverzichtSpeler(id){
   const goed = rq.data.reduce((t,r)=>t+r.goed,0), tot = rq.data.reduce((t,r)=>t+r.totaal,0);
   render(h("div",{class:"stack"},
     h("div",{class:"row"}, poppetje(p, 64), h("div",null,h("h2",null,p.naam), h("div",{class:"muted"},`${rq.data.length} quizzen · ${nl(goed)} goed · ${nl(tot-goed)} fout · ${tot ? Math.round(goed/tot*100) : 0}% goed`))),
-    h("div",{class:"card scroll"}, h("h3",null,"Per onderwerp"),
+    h("div",{class:"card scroll"}, h("h3",null,"Per quiz"),
       owRijen.length ? h("table",null,
-        h("thead",null,h("tr",null,h("th",null,"Onderwerp"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Goed"),h("th",{class:"num"},"Fout"),h("th",{class:"num"},"% goed"),h("th",{class:"num"},"Nog nooit gehad"))),
+        h("thead",null,h("tr",null,h("th",null,"Quiz"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Goed"),h("th",{class:"num"},"Fout"),h("th",{class:"num"},"% goed"),h("th",{class:"num"},"Nog nooit gehad"))),
         h("tbody",null, owRijen.map(x => h("tr",{class:"clickrow",onclick:()=>x.o && go(x.o.hash)},
           h("td",null,(x.o?.emoji||"")+" "+(x.o?.titel||"verwijderd")), h("td",{class:"num"},x.rondes), h("td",{class:"num"},x.goed), h("td",{class:"num"},x.tot-x.goed),
           h("td",{class:"num"},Math.round(x.goed/x.tot*100)+"%"), h("td",{class:"num"}, x.nooit == null ? "–" : `${x.nooit} van ${x.fams}`)))))
       : h("p",{class:"muted"},"Nog niet gespeeld.")),
-    owRijen.some(x => x.fams && x.nooit/x.fams < .2) ? h("p",{class:"note warn"},"Bij sommige onderwerpen heeft deze speler bijna alle vragen al gehad. Maak daar meer vragen of een andere vraagstelling, zodat de quiz fris blijft.") : null,
+    owRijen.some(x => x.fams && x.nooit/x.fams < .2) ? h("p",{class:"note warn"},"Bij sommige quizzen heeft deze speler bijna alle vragen al gehad. Maak daar meer vragen of een andere vraagstelling, zodat de quiz fris blijft.") : null,
     h("div",{class:"card scroll"}, h("h3",null,"❌ Gaan het vaakst fout"), moeilijk.length ? vraagTabel(moeilijk, true) : h("p",{class:"muted"},"Nog geen foute antwoorden.")),
     h("div",{class:"card scroll"}, h("h3",null,"🔁 Komen het vaakst terug"), vaak.length ? vraagTabel(vaak, false) : h("p",{class:"muted"},"Nog niets gespeeld.")),
-    h("button",{class:"btn",onclick:()=>go("#overzicht")},"Terug naar het overzicht")));
+    h("button",{class:"btn",onclick:()=>go("#beheer/gebruikers")},"Terug naar Gebruikers")));
 }
 
 /* ============ confetti ============ */
