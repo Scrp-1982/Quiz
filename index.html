@@ -4,7 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Quizmaster</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<meta name="description" content="Oefen je lesstof met quizzen en pak de highscore.">
+<meta name="theme-color" content="#0D111B">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Quizmaster">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Lexend:wght@400;500;600&display=swap" rel="stylesheet">
@@ -66,7 +75,7 @@ textarea{min-height:80px;resize:vertical}
 /* header */
 .top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:22px;flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:10px;background:none;border:0;padding:0;cursor:pointer;color:var(--text)}
-.logo .b{width:44px;height:44px;background:var(--hot);clip-path:var(--cut);display:grid;place-items:center;font-size:24px}
+.logo img{width:46px;height:46px;display:block}
 .logo span{font-family:var(--display);font-weight:700;font-size:1.6rem;letter-spacing:.02em}
 .nav{display:flex;gap:8px;flex-wrap:wrap}
 .nav .btn{min-height:42px;padding:6px 14px;font-size:.98rem}
@@ -184,7 +193,7 @@ summary{cursor:pointer;font-weight:600}
 <script>
 "use strict";
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-11.3";
+const VERSIE = "2026-11-11.4";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -275,7 +284,7 @@ function header(){
         isBeheerderRol() ? h("button",{class:"btn",onclick:()=>go("#beheer")}, isBeheerder() ? "⚙️ Beheer" : "🔒 Beheer") : null,
         h("button",{class:"btn",onclick:()=>go("#profiel"),"aria-label":"Mijn profiel"}, (S.profiel?.avatar||"🙂") + " " + (S.profiel?.naam||""))));
 }
-const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Naar beginscherm"}, h("div",{class:"b"},"⚡"), h("span",null,"Quizmaster"));
+const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Naar beginscherm"}, h("img",{src:"logo.svg",alt:""}), h("span",null,"Quizmaster"));
 
 /* ============ routes ============ */
 let spelOnderwerpId = null;
