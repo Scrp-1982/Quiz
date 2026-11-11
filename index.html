@@ -93,6 +93,17 @@ textarea{min-height:80px;resize:vertical}
 .tile:hover{transform:translateY(-3px);filter:brightness(1.1)}
 .tile:active{transform:translateY(1px)}
 .tile .emo{font-size:2.8rem;line-height:1;filter:drop-shadow(0 3px 0 rgba(0,0,0,.35))}
+.tile .ico{width:64px;height:64px;display:block;filter:drop-shadow(0 3px 0 rgba(0,0,0,.3))}
+.vakbadge{width:64px;height:64px;clip-path:var(--cut);display:grid;place-items:center;font-size:2.4rem;flex:none}
+.vakbadge img{width:46px;height:46px}
+.icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:10px}
+.icons button{position:relative;height:76px;border:0;clip-path:var(--cut);cursor:pointer;display:grid;place-items:center;font-size:2rem;color:#fff}
+.icons button img{width:50px;height:50px}
+.icons button[aria-pressed="true"]{outline:3px solid #fff;outline-offset:-6px}
+.icons button .x{position:absolute;top:2px;right:6px;font-size:.9rem;opacity:.8}
+.kleurkies{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.kleurkies input[type=color]{width:56px;height:46px;border:2px solid var(--line);border-radius:8px;background:#0F1420;padding:2px;cursor:pointer}
+.voorbeeld{width:220px}
 .tile h3{margin-top:auto;font-size:1.45rem;text-shadow:0 2px 0 rgba(0,0,0,.35)}
 .tile .small{opacity:.9}
 .tile.add{background:transparent;box-shadow:inset 0 0 0 2px var(--line);color:var(--muted);align-items:center;justify-content:center;text-align:center}
@@ -193,7 +204,7 @@ summary{cursor:pointer;font-weight:600}
 <script>
 "use strict";
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-11.5";
+const VERSIE = "2026-11-11.6";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -262,6 +273,8 @@ function bronVan(r){
   if (r.toets_id){ const t = toets(r.toets_id); return { titel: t?.titel || "Toets", emoji: t?.emoji || "📝", hash: t ? "#toets/"+t.id : null, vak: t?.vak_id }; }
   const o = onderwerp(r.onderwerp_id); return { titel: o?.titel || "Onderwerp", emoji: o?.emoji || "📘", hash: o ? "#onderwerp/"+o.id : null, vak: o?.vak_id };
 }
+const icoonUrl = pad => `${SUPABASE_URL}/storage/v1/object/public/iconen/${encodeURIComponent(pad)}`;
+const vakIcoon = (v, cls) => v.icoon ? h("img",{class:cls||"ico",src:icoonUrl(v.icoon),alt:""}) : h("div",{class:"emo","aria-hidden":"true"},v.emoji);
 function dagenTot(d){ if (!d) return null; const t = new Date(d+"T00:00:00"), n = new Date(); n.setHours(0,0,0,0); return Math.round((t-n)/864e5); }
 function toetsDatumTekst(d){
   const n = dagenTot(d); if (n == null) return "";
@@ -394,7 +407,7 @@ function viewHome(){
   const tegels = S.vakken.map(v => {
     const n = S.onderwerpen.filter(o => o.vak_id === v.id && (o.zichtbaar || isBeheerder())).length;
     return h("button",{class:"tile",style:`--c:${v.kleur}`,onclick:()=>go("#vak/"+v.id)},
-      h("div",{class:"emo","aria-hidden":"true"},v.emoji), h("h3",null,v.naam), h("div",{class:"small"}, n === 1 ? "1 onderwerp" : `${n} onderwerpen`));
+      vakIcoon(v), h("h3",null,v.naam), h("div",{class:"small"}, n === 1 ? "1 onderwerp" : `${n} onderwerpen`));
   });
   if (isBeheerder()) tegels.push(h("button",{class:"tile add",onclick:()=>go("#vak-nieuw")}, h("div",{class:"emo"},"➕"), h("h3",null,"Nieuw vak")));
   const leeg = !S.vakken.length ? h("div",{class:"card empty stack"}, h("div",{class:"emo"},"📚"), h("h3",null,"Nog geen vakken"),
@@ -425,37 +438,107 @@ async function standaardVakken(){
 }
 
 /* ============ vak-formulier ============ */
-function viewVakForm(id){
+async function viewVakForm(id){
   if (!isBeheerder()) return viewMfa(location.hash);
   const v = id ? vak(id) : null;
   let kleur = v?.kleur || KLEUREN[S.vakken.length % KLEUREN.length];
-  const naam = h("input",{type:"text",id:"vn",value:v?.naam||"",maxlength:"40",placeholder:"bijv. Natuurkunde"});
-  const emoji = h("input",{type:"text",id:"ve",value:v?.emoji||"📘",maxlength:"8",style:"max-width:120px;font-size:1.4rem"});
+  let icoon = v ? (v.icoon || null) : null;
+  const naam = h("input",{type:"text",id:"vn",value:v?.naam||"",maxlength:"40",placeholder:"bijv. Aardrijkskunde",oninput:tekenVoorbeeld});
+  const emoji = h("input",{type:"text",id:"ve",value:v?.emoji||"📘",maxlength:"8",style:"max-width:120px;font-size:1.4rem",oninput:tekenVoorbeeld});
   const volg = h("input",{type:"number",id:"vo",value:v?.volgorde ?? S.vakken.length,style:"max-width:120px"});
+  const kiezer = h("input",{type:"color",value:kleur,"aria-label":"Eigen kleur kiezen",oninput:e=>{kleur=e.target.value;tekenSw();tekenIconen();tekenVoorbeeld();}});
   const sw = h("div",{class:"swatches"});
-  const tekenSw = () => sw.replaceChildren(...KLEUREN.map(k => h("button",{type:"button",style:`background:${k}`,"aria-label":"Kleur "+k,"aria-pressed":String(k===kleur),onclick:()=>{kleur=k;tekenSw();}})));
-  tekenSw();
+  const tekenSw = () => sw.replaceChildren(...KLEUREN.map(k => h("button",{type:"button",style:`background:${k}`,"aria-label":"Kleur "+k,"aria-pressed":String(k.toLowerCase()===kleur.toLowerCase()),
+    onclick:()=>{kleur=k;kiezer.value=k;tekenSw();tekenIconen();tekenVoorbeeld();}})));
+  const voorbeeld = h("div",{class:"voorbeeld"});
+  function tekenVoorbeeld(){
+    voorbeeld.replaceChildren(h("div",{class:"tile",style:`--c:${kleur};cursor:default`},
+      vakIcoon({icoon, emoji: emoji.value || "📘"}), h("h3",null,naam.value || "Naam van het vak"), h("div",{class:"small"},"Zo ziet de tegel eruit")));
+  }
+  // iconen uit de map "iconen"
+  let lijst = [];
+  const iconen = h("div",{class:"icons"});
+  const bestand = h("input",{type:"file",accept:"image/png,image/jpeg,image/webp",hidden:true,onchange:async e=>{ const f = e.target.files[0]; e.target.value=""; if (f) await nieuwIcoon(f); }});
+  const icoonMsg = h("div");
+  function tekenIconen(){
+    iconen.replaceChildren(
+      h("button",{type:"button",style:`background:${kleur}`,"aria-pressed":String(!icoon),title:"Geen plaatje, gebruik de emoji",onclick:()=>{icoon=null;tekenIconen();tekenVoorbeeld();}}, emoji.value || "📘"),
+      ...lijst.map(pad => h("button",{type:"button",style:`background:${kleur}`,"aria-pressed":String(pad===icoon),title:pad,onclick:()=>{icoon=pad;tekenIconen();tekenVoorbeeld();}},
+        h("img",{src:icoonUrl(pad),alt:pad}))));
+  }
+  async function laadIconen(){
+    const { data, error } = await sb.storage.from("iconen").list("", { limit:200, sortBy:{ column:"name", order:"asc" } });
+    if (error) return icoonMsg.replaceChildren(h("p",{class:"note err"},"Iconen laden mislukt: " + fout(error)));
+    lijst = (data||[]).filter(x => x.name && x.name.endsWith(".png")).map(x => x.name);
+    tekenIconen();
+  }
+  async function nieuwIcoon(f){
+    icoonMsg.replaceChildren(h("p",{class:"note"},"Plaatje omzetten en uploaden…"));
+    try {
+      const blob = await maakIcoon(f);
+      const basis = (naam.value.trim() || f.name.replace(/\.[^.]+$/,"")).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "icoon";
+      const pad = `${basis}-${Date.now().toString(36)}.png`;
+      const { error } = await sb.storage.from("iconen").upload(pad, blob, { contentType:"image/png" });
+      if (error) throw error;
+      icoon = pad; await laadIconen(); tekenVoorbeeld();
+      icoonMsg.replaceChildren(h("p",{class:"note ok"},"Icoon toegevoegd en gekozen."));
+    } catch (e) { icoonMsg.replaceChildren(h("p",{class:"note err"},fout(e))); }
+  }
   const msg = h("div");
   async function opslaan(){
-    const rij = { naam: naam.value.trim(), emoji: emoji.value.trim() || "📘", kleur, volgorde: Number(volg.value)||0 };
+    const rij = { naam: naam.value.trim(), emoji: emoji.value.trim() || "📘", kleur, icoon, volgorde: Number(volg.value)||0 };
     if (!rij.naam) return msg.replaceChildren(h("p",{class:"note err"},"Vul een naam in."));
     const { error } = v ? await sb.from("vakken").update(rij).eq("id", v.id) : await sb.from("vakken").insert(rij);
     if (error) return msg.replaceChildren(h("p",{class:"note err"},fout(error)));
     await laadAlles(); go(v ? "#vak/" + v.id : "#");
   }
-  render(h("div",{class:"card stack",style:"max-width:560px"},
+  tekenSw(); tekenVoorbeeld(); tekenIconen();
+  render(h("div",{class:"stack",style:"max-width:680px"},
     h("h2",null, v ? "Vak bewerken" : "Nieuw vak"),
-    h("div",null,h("label",{class:"f",for:"vn"},"Naam"),naam),
-    h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"ve"},"Emoji"),emoji), h("div",null,h("label",{class:"f",for:"vo"},"Volgorde"),volg)),
-    h("div",null,h("span",{class:"f",style:"font-weight:600;display:block;margin-bottom:6px"},"Kleur van de tegel"),sw),
+    h("div",{class:"card stack"},
+      h("div",null,h("label",{class:"f",for:"vn"},"Naam (de categorie)"),naam),
+      h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"ve"},"Emoji (als er geen plaatje is)"),emoji), h("div",null,h("label",{class:"f",for:"vo"},"Volgorde"),volg))),
+    h("div",{class:"card stack"},
+      h("h3",null,"Kleur"),
+      h("div",{class:"kleurkies"}, sw, h("label",{class:"row",style:"gap:8px"}, kiezer, h("span",{class:"small muted"},"Eigen kleur")))),
+    h("div",{class:"card stack"},
+      h("h3",null,"Plaatje"),
+      h("p",{class:"muted small"},"Kies een plaatje, of upload een nieuw. De witte achtergrond wordt automatisch weggehaald en het plaatje wordt wit, zodat het mooi op elke kleur staat."),
+      iconen, bestand,
+      h("div",null,h("button",{class:"btn",type:"button",onclick:()=>bestand.click()},"⬆️ Nieuw plaatje uploaden")),
+      icoonMsg),
+    h("div",{class:"card stack"}, h("h3",null,"Voorbeeld"), voorbeeld),
     msg,
     h("div",{class:"row"}, h("button",{class:"btn green big",onclick:opslaan},"Opslaan"), h("button",{class:"btn link",onclick:()=>history.back()},"Annuleren"),
       v ? h("button",{class:"btn link",style:"margin-left:auto",onclick:async()=>{
-        if (!confirm(`“${v.naam}” verwijderen? Alle onderwerpen, vragen en scores van dit vak verdwijnen ook.`)) return;
+        if (!confirm(`“${v.naam}” verwijderen? Alle onderwerpen, toetsen, vragen en scores van dit vak verdwijnen ook.`)) return;
         const { error } = await sb.from("vakken").delete().eq("id", v.id);
         if (error) return toast(fout(error));
         await laadAlles(); go("#");
       }},"Vak verwijderen") : null)));
+  laadIconen();
+}
+
+// Maakt van een zwart-wit plaatje een wit icoon op een doorzichtige achtergrond (256×256)
+async function maakIcoon(file){
+  let bmp; try { bmp = await createImageBitmap(file); } catch { throw new Error("Dit plaatje kon niet worden gelezen. Gebruik png of jpg."); }
+  const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+  const x = c.getContext("2d", { willReadFrequently:true }); x.drawImage(bmp,0,0);
+  const img = x.getImageData(0,0,c.width,c.height), d = img.data;
+  let minX=c.width, minY=c.height, maxX=-1, maxY=-1;
+  for (let i=0;i<d.length;i+=4){
+    const L = (d[i]*299 + d[i+1]*587 + d[i+2]*114)/1000;
+    const a = Math.max(0, Math.min(255, (235 - L) * 255 / 175)) * d[i+3] / 255;
+    d[i]=d[i+1]=d[i+2]=255; d[i+3]=a;
+    if (a > 20){ const p=i/4, px=p%c.width, py=(p/c.width)|0; if(px<minX)minX=px; if(px>maxX)maxX=px; if(py<minY)minY=py; if(py>maxY)maxY=py; }
+  }
+  if (maxX < 0) throw new Error("Op dit plaatje staat niets donkers. Gebruik een zwart plaatje op een witte achtergrond.");
+  x.putImageData(img,0,0);
+  const w = maxX-minX+1, hgt = maxY-minY+1, z = Math.max(w,hgt), pad = Math.round(z*0.04);
+  const o = document.createElement("canvas"); o.width = o.height = 256;
+  const s2 = 256 / (z + 2*pad);
+  o.getContext("2d").drawImage(c, minX, minY, w, hgt, (256 - w*s2)/2, (256 - hgt*s2)/2, w*s2, hgt*s2);
+  return await new Promise((ok,nok) => o.toBlob(b => b ? ok(b) : nok(new Error("Omzetten mislukt")), "image/png"));
 }
 
 /* ============ vak: onderwerpen ============ */
@@ -480,7 +563,7 @@ function viewVak(id){
       h("div",{class:"best"}, b ? `🏆 ${nl(b)}` : "Nog niet geoefend"));
   });
   render(h("div",{class:"stack"},
-    h("div",{class:"row"}, h("span",{style:"font-size:3rem","aria-hidden":"true"},v.emoji), h("h2",null,v.naam),
+    h("div",{class:"row"}, h("div",{class:"vakbadge",style:`background:${v.kleur}`}, v.icoon ? h("img",{src:icoonUrl(v.icoon),alt:""}) : v.emoji), h("h2",null,v.naam),
       isBeheerder() ? h("button",{class:"btn link",style:"margin-left:auto",onclick:()=>go("#vak-bewerken/"+v.id)},"Vak bewerken") : null),
     isBeheerder() ? h("div",{class:"row"}, h("button",{class:"btn green big",onclick:()=>go("#nieuw/"+v.id)},"📸 Nieuw onderwerp"),
       h("button",{class:"btn big",onclick:()=>go("#toets-nieuw/"+v.id)},"📝 Nieuwe toets")) : null,
