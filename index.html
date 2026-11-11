@@ -93,12 +93,12 @@ textarea{min-height:80px;resize:vertical}
 .tile:hover{transform:translateY(-3px);filter:brightness(1.1)}
 .tile:active{transform:translateY(1px)}
 .tile .emo{font-size:2.8rem;line-height:1;filter:drop-shadow(0 3px 0 rgba(0,0,0,.35))}
-.tile .ico{width:64px;height:64px;display:block;filter:drop-shadow(0 3px 0 rgba(0,0,0,.3))}
+.tile .ico{height:72px;width:auto;max-width:100%;display:block;align-self:flex-start;object-fit:contain;filter:drop-shadow(0 3px 0 rgba(0,0,0,.3))}
 .vakbadge{width:64px;height:64px;clip-path:var(--cut);display:grid;place-items:center;font-size:2.4rem;flex:none}
-.vakbadge img{width:46px;height:46px}
+.vakbadge img{max-width:46px;max-height:52px}
 .icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:10px}
 .icons button{position:relative;height:76px;border:0;clip-path:var(--cut);cursor:pointer;display:grid;place-items:center;font-size:2rem;color:#fff}
-.icons button img{width:50px;height:50px}
+.icons button img{max-width:50px;max-height:58px}
 .icons button[aria-pressed="true"]{outline:3px solid #fff;outline-offset:-6px}
 .icons button .x{position:absolute;top:2px;right:6px;font-size:.9rem;opacity:.8}
 .kleurkies{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -170,6 +170,26 @@ summary{cursor:pointer;font-weight:600}
 .qr{background:#fff;border-radius:8px;padding:10px;width:220px;max-width:100%}
 .code{font-family:ui-monospace,Consolas,monospace;word-break:break-all}
 
+/* vraagsoorten */
+.chips{display:flex;flex-wrap:wrap;gap:8px;min-height:60px;padding:10px;border:2px dashed var(--line);border-radius:10px;margin-top:14px;align-items:center}
+.chips.bank{border-style:solid;background:#0F1420}
+.chip{border:0;clip-path:var(--cut);background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);padding:10px 14px;font-weight:600;font-size:1.08rem;cursor:pointer;color:var(--text)}
+.chip.in{background:var(--cyan);color:#04161A;box-shadow:none}
+.chips .leeg{color:var(--muted);font-size:.95rem}
+.typ{margin-top:16px}
+.typ input{font-size:1.4rem;font-weight:600;padding:14px 16px}
+.accenten{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.accenten button{min-width:42px;height:42px;border:2px solid var(--line);border-radius:8px;background:#0F1420;font-size:1.15rem;cursor:pointer}
+.koppel{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.koppel .kol{display:flex;flex-direction:column;gap:10px}
+.kp{border:0;clip-path:var(--cut);background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);padding:12px;font-weight:600;font-size:1.02rem;cursor:pointer;color:var(--text);text-align:left;min-height:52px}
+.kp.sel{box-shadow:inset 0 0 0 3px #fff}
+.kp.goed{outline:3px solid var(--good);outline-offset:-3px}
+.kp.mis{outline:3px dashed var(--bad);outline-offset:-3px}
+.typekeuze{display:flex;flex-wrap:wrap;gap:8px 16px}
+.typekeuze label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.typekeuze input{width:20px;height:20px}
+
 /* spelen */
 .hud{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;font-weight:600;flex-wrap:wrap}
 .pill{background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);clip-path:var(--cut);padding:4px 14px;font-family:var(--display);font-weight:700;font-size:1.15rem}
@@ -211,8 +231,10 @@ summary{cursor:pointer;font-weight:600}
 <main id="app" aria-live="polite"></main>
 <script>
 "use strict";
+// null en false nooit als tekst tonen
+{ const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-11.9";
+const VERSIE = "2026-11-11.11";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -221,6 +243,18 @@ const NIVEAUS = ["Groep 7–8", "Brugklas vmbo", "Havo/vwo 1", "Havo/vwo 2", "Ha
 const KLEUREN = ["#FF6B1A","#3B82F6","#16A34A","#9333EA","#F59E0B","#E11D48","#0891B2","#65A30D"];
 const AVATARS = ["🙂","😎","🤓","🦊","🐼","🐯","🦁","🐸","🐙","🦄","🐲","🚀","⚽","🎮","🎸","🌟","🍕","🏀","🦖","🐬"];
 const STANDAARD = [["Aardrijkskunde","🌍","#0891B2"],["Wiskunde","📐","#3B82F6"],["Engels","💬","#E11D48"],["Frans","🥐","#9333EA"],["Geschiedenis","⚔️","#F59E0B"],["Biologie","🧬","#16A34A"]];
+const VRAAGSOORTEN = { meerkeuze:"🔘 Meerkeuze", typen:"⌨️ Zelf typen (vertalen, invullen)", volgorde:"🧩 Zin bouwen", koppelen:"🔗 Koppelen" };
+const TAALVAKKEN = ["Nederlands","Engels","Frans","Duits","Spaans"];
+const ACCENTEN = { Frans:"é è ê ë à â ç î ï ô û ù œ", Spaans:"á é í ó ú ñ ü ¿ ¡", Duits:"ä ö ü ß", Nederlands:"é ë ï ö è" };
+const TIJD_FACTOR = { meerkeuze:1, typen:1.6, volgorde:2, koppelen:2.5 };
+const KOPPEL_KLEUREN = ["#F43F5E","#3B82F6","#16A34A","#9333EA","#F59E0B","#0891B2"];
+function typeKeuze(gekozen){
+  const set = new Set(gekozen);
+  const el = h("div",{class:"typekeuze"}, Object.entries(VRAAGSOORTEN).map(([k,t]) => h("label",null,
+    h("input",{type:"checkbox",checked:set.has(k),onchange:e=>{ e.target.checked ? set.add(k) : set.delete(k); }}), t)));
+  el.waarde = () => Object.keys(VRAAGSOORTEN).filter(k => set.has(k));
+  return el;
+}
 const DIFF = {
   1: { naam:"Makkelijk", sterren:"⭐", n:8,  tijd:30, mult:1,   uitleg:"Basisvragen uit het boek. Veel tijd per vraag." },
   2: { naam:"Gemiddeld", sterren:"⭐⭐", n:10, tijd:20, mult:1.5, uitleg:"Alle soorten vragen uit het boek. 1,5× punten." },
@@ -303,7 +337,9 @@ async function verwijderFoto(p){
   await laadAlles(); toast("Foto verwijderd."); route();
 }
 const icoonUrl = pad => `${SUPABASE_URL}/storage/v1/object/public/iconen/${encodeURIComponent(pad)}`;
-const vakIcoon = (v, cls) => v.icoon ? h("img",{class:cls||"ico",src:icoonUrl(v.icoon),alt:""}) : h("div",{class:"emo","aria-hidden":"true"},v.emoji);
+const vakIcoon = (v, cls) => v.icoon ? h("img",{class:cls||"ico",src:icoonUrl(v.icoon),alt:"",onload:e=>{
+    const r = e.target.naturalWidth / e.target.naturalHeight; if (r > 0) e.target.style.height = Math.round(Math.min(100, Math.max(56, 72 / Math.sqrt(r)))) + "px"; }})
+  : h("div",{class:"emo","aria-hidden":"true"},v.emoji);
 function dagenTot(d){ if (!d) return null; const t = new Date(d+"T00:00:00"), n = new Date(); n.setHours(0,0,0,0); return Math.round((t-n)/864e5); }
 function toetsDatumTekst(d){
   const n = dagenTot(d); if (n == null) return "";
@@ -315,7 +351,7 @@ const RONDE_VELDEN = "id, speler_id, onderwerp_id, toets_id, moeilijkheid, met_t
 async function laadAlles(){
   const [v, o, p, r, t, to] = await Promise.all([
     sb.from("vakken").select("*").order("volgorde").order("naam"),
-    sb.from("onderwerpen").select("id, vak_id, titel, emoji, niveau, zichtbaar, aangemaakt, vragen(count)").order("titel"),
+    sb.from("onderwerpen").select("id, vak_id, titel, emoji, niveau, zichtbaar, vraagsoorten, aangemaakt, vragen(count)").order("titel"),
     sb.from("profielen").select("*").order("naam"),
     sb.from("rondes").select(RONDE_VELDEN).order("gespeeld_op",{ascending:false}).limit(5000),
     sb.from("toetsen").select("*").order("datum",{ascending:true,nullsFirst:false}),
@@ -501,6 +537,7 @@ async function viewVakForm(id){
   const naam = h("input",{type:"text",id:"vn",value:v?.naam||"",maxlength:"40",placeholder:"bijv. Aardrijkskunde",oninput:tekenVoorbeeld});
   const emoji = h("input",{type:"text",id:"ve",value:v?.emoji||"📘",maxlength:"8",style:"max-width:120px;font-size:1.4rem",oninput:tekenVoorbeeld});
   const volg = h("input",{type:"number",id:"vo",value:v?.volgorde ?? S.vakken.length,style:"max-width:120px"});
+  const taal = h("select",{id:"vt",style:"max-width:220px"}, h("option",{value:""},"Nee, geen taalvak"), TAALVAKKEN.map(t => h("option",{value:t,selected:v?.taal===t},t)));
   const kiezer = h("input",{type:"color",value:kleur,"aria-label":"Eigen kleur kiezen",oninput:e=>{kleur=e.target.value;tekenSw();tekenIconen();tekenVoorbeeld();}});
   const sw = h("div",{class:"swatches"});
   const tekenSw = () => sw.replaceChildren(...KLEUREN.map(k => h("button",{type:"button",style:`background:${k}`,"aria-label":"Kleur "+k,"aria-pressed":String(k.toLowerCase()===kleur.toLowerCase()),
@@ -541,7 +578,7 @@ async function viewVakForm(id){
   }
   const msg = h("div");
   async function opslaan(){
-    const rij = { naam: naam.value.trim(), emoji: emoji.value.trim() || "📘", kleur, icoon, volgorde: Number(volg.value)||0 };
+    const rij = { naam: naam.value.trim(), emoji: emoji.value.trim() || "📘", kleur, icoon, taal: taal.value || null, volgorde: Number(volg.value)||0 };
     if (!rij.naam) return msg.replaceChildren(h("p",{class:"note err"},"Vul een naam in."));
     const { error } = v ? await sb.from("vakken").update(rij).eq("id", v.id) : await sb.from("vakken").insert(rij);
     if (error) return msg.replaceChildren(h("p",{class:"note err"},fout(error)));
@@ -552,7 +589,9 @@ async function viewVakForm(id){
     h("h2",null, v ? "Vak bewerken" : "Nieuw vak"),
     h("div",{class:"card stack"},
       h("div",null,h("label",{class:"f",for:"vn"},"Naam (de categorie)"),naam),
-      h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"ve"},"Emoji (als er geen plaatje is)"),emoji), h("div",null,h("label",{class:"f",for:"vo"},"Volgorde"),volg))),
+      h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"ve"},"Emoji (als er geen plaatje is)"),emoji), h("div",null,h("label",{class:"f",for:"vo"},"Volgorde"),volg)),
+      h("div",null,h("label",{class:"f",for:"vt"},"Taalvak?"),taal,
+        h("p",{class:"muted small"},"Bij een taalvak maakt Gemini ook vertaal-, invul-, zinsbouw- en koppelvragen, en krijgt de speler knoppen voor letters met accenten."))),
     h("div",{class:"card stack"},
       h("h3",null,"Kleur"),
       h("div",{class:"kleurkies"}, sw, h("label",{class:"row",style:"gap:8px"}, kiezer, h("span",{class:"small muted"},"Eigen kleur")))),
@@ -574,7 +613,7 @@ async function viewVakForm(id){
   laadIconen();
 }
 
-// Maakt van een zwart-wit plaatje een wit icoon op een doorzichtige achtergrond (256×256)
+// Maakt van een zwart-wit plaatje een wit icoon op een doorzichtige achtergrond (langste zijde 384, verhouding blijft)
 async function maakIcoon(file){
   let bmp; try { bmp = await createImageBitmap(file); } catch { throw new Error("Dit plaatje kon niet worden gelezen. Gebruik png of jpg."); }
   const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
@@ -592,10 +631,9 @@ async function maakIcoon(file){
   }
   if (maxX < 0) throw new Error("Op dit plaatje is geen vorm te vinden. Gebruik een donker plaatje op een witte achtergrond, of een plaatje met een doorzichtige achtergrond.");
   x.putImageData(img,0,0);
-  const w = maxX-minX+1, hgt = maxY-minY+1, z = Math.max(w,hgt), pad = Math.round(z*0.04);
-  const o = document.createElement("canvas"); o.width = o.height = 256;
-  const s2 = 256 / (z + 2*pad);
-  o.getContext("2d").drawImage(c, minX, minY, w, hgt, (256 - w*s2)/2, (256 - hgt*s2)/2, w*s2, hgt*s2);
+  const w = maxX-minX+1, hgt = maxY-minY+1, s2 = 384 / Math.max(w,hgt);
+  const o = document.createElement("canvas"); o.width = Math.max(1, Math.round(w*s2)); o.height = Math.max(1, Math.round(hgt*s2));
+  o.getContext("2d").drawImage(c, minX, minY, w, hgt, 0, 0, o.width, o.height);
   return await new Promise((ok,nok) => o.toBlob(b => b ? ok(b) : nok(new Error("Omzetten mislukt")), "image/png"));
 }
 
@@ -642,6 +680,7 @@ function viewFotos({ vakId, onderwerpId }){
   const titel = h("input",{type:"text",id:"ot",maxlength:"80",placeholder:"bijv. Hoofdstuk 3 – Rivieren"});
   const emoji = h("input",{type:"text",id:"oe",value:v.emoji,maxlength:"8",style:"max-width:120px;font-size:1.4rem"});
   const niveau = h("select",{id:"on"}, NIVEAUS.map(n => h("option",{value:n,selected:n==="Havo/vwo 1"},n)));
+  const soortKeuze = typeKeuze(v.taal ? Object.keys(VRAAGSOORTEN) : ["meerkeuze"]);
   const notities = h("textarea",{id:"oa",placeholder:"Optioneel: bijv. “alleen paragraaf 3.2”, “vooral de begrippen”, “toets gaat over de jaartallen”"});
   const thumbs = h("div",{class:"thumbs"});
   const msg = h("div");
@@ -665,7 +704,7 @@ function viewFotos({ vakId, onderwerpId }){
     try {
       if (!ow){
         laden("Onderwerp aanmaken…");
-        const { data, error } = await sb.from("onderwerpen").insert({ vak_id:v.id, titel:titel.value.trim(), emoji:emoji.value.trim()||v.emoji, niveau:niveau.value, notities:notities.value.trim()||null }).select().single();
+        const { data, error } = await sb.from("onderwerpen").insert({ vak_id:v.id, titel:titel.value.trim(), emoji:emoji.value.trim()||v.emoji, niveau:niveau.value, notities:notities.value.trim()||null, vraagsoorten: soortKeuze.waarde().length ? soortKeuze.waarde() : ["meerkeuze"] }).select().single();
         if (error) throw error; ow = data;
       }
       const paden = [];
@@ -695,7 +734,8 @@ function viewFotos({ vakId, onderwerpId }){
     bestaand ? null : h("div",{class:"card stack"},
       h("div",null,h("label",{class:"f",for:"ot"},"Titel"),titel),
       h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"oe"},"Emoji"),emoji), h("div",{style:"flex:1;min-width:220px"},h("label",{class:"f",for:"on"},"Niveau"),niveau)),
-      h("div",null,h("label",{class:"f",for:"oa"},"Waar moet de quiz op letten?"),notities)),
+      h("div",null,h("label",{class:"f",for:"oa"},"Waar moet de quiz op letten?"),notities),
+      h("div",null,h("span",{style:"font-weight:600;display:block;margin-bottom:6px"},"Soorten vragen"),soortKeuze)),
     h("div",{class:"card"},
       h("div",{class:"drop",tabindex:"0",role:"button",onclick:()=>kies.click(),onkeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();kies.click();}},
         ondragover:e=>e.preventDefault(),ondrop:e=>{e.preventDefault();voegToe(e.dataTransfer.files);}},
@@ -817,12 +857,25 @@ function beheerOnderwerp(o, vragen, boek, extra){
     h("button",{class:"btn",onclick:()=>maak("meer","Gemini maakt nieuwe vragen uit de lesstof…")},"✨ Meer vragen uit het boek"),
     h("button",{class:"btn purple",onclick:()=>maak("extra","Gemini maakt vragen buiten het boek…")},"🌐 Vragen buiten het boek"),
     h("button",{class:"btn",onclick:()=>maak("varianten","Gemini bedenkt een andere vraagstelling voor de vragen die het vaakst gesteld zijn…")},"🔄 Andere vraagstelling"));
+  const soortKeuze = typeKeuze(o.vraagsoorten || ["meerkeuze"]);
+  const soortenBlok = h("details",null, h("summary",null,"Soorten vragen voor dit onderwerp: " + (o.vraagsoorten||["meerkeuze"]).map(t => VRAAGSOORTEN[t]?.split(" ")[0]).join(" ")),
+    h("div",{class:"stack",style:"margin-top:10px"}, soortKeuze,
+      h("p",{class:"muted small"},"Geldt voor de volgende keer dat je Gemini vragen laat maken."),
+      h("div",null,h("button",{class:"btn",onclick:async()=>{
+        const w = soortKeuze.waarde(); if (!w.length) return toast("Kies minstens één soort.");
+        const { error } = await sb.from("onderwerpen").update({ vraagsoorten:w }).eq("id", o.id);
+        if (error) return toast(fout(error)); await laadAlles(); toast("Opgeslagen."); viewOnderwerp(o.id);
+      }},"Opslaan"))));
   const vraagItem = (q, metKnoppen) => h("div",{class:"qitem"},
-    h("div",null, q.status==="voorstel" ? h("span",{class:"tag prop"},"Voorstel") : null, q.soort==="extra" ? h("span",{class:"tag extra"},"Buiten het boek") : null,
+    h("div",null, q.status==="voorstel" ? h("span",{class:"tag prop"},"Voorstel") : null,
+      (q.type||"meerkeuze") !== "meerkeuze" ? h("span",{class:"tag"},VRAAGSOORTEN[q.type].split(" (")[0]) : null, q.soort==="extra" ? h("span",{class:"tag extra"},"Buiten het boek") : null,
       q.variant_van ? h("span",{class:"tag"},"🔄 Variant") : null,
       h("span",{class:"tag"},"⭐".repeat(q.moeilijkheid))),
     h("div",{style:"margin-top:6px"}, h("strong",null, q.emoji + " " + q.vraag)),
-    h("ul",{class:"opts"}, q.opties.map((t,i) => h("li",{class:i===q.juist?"ok":null}, (i===q.juist?"✔ ":"○ ") + t))),
+    (q.type||"meerkeuze") === "meerkeuze" ? h("ul",{class:"opts"}, q.opties.map((t,i) => h("li",{class:i===q.juist?"ok":null}, (i===q.juist?"✔ ":"○ ") + t)))
+    : q.type === "typen" ? h("ul",{class:"opts"}, h("li",{class:"ok"},"✔ " + q.opties[0]), q.opties.length > 1 ? h("li",{class:"muted"},"Ook goed: " + q.opties.slice(1).join(" · ")) : null)
+    : q.type === "volgorde" ? h("ul",{class:"opts"}, h("li",{class:"ok"},"✔ " + q.opties.join(" ")))
+    : h("ul",{class:"opts"}, q.opties.map(t => h("li",{class:"ok"},"🔗 " + t))),
     q.uitleg ? h("div",{class:"small"},q.uitleg) : null,
     q.bron ? h("div",{class:"src small"}, (q.soort==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + q.bron + "”") : null,
     h("div",{class:"row",style:"margin-top:8px"},
@@ -836,7 +889,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
         : h("button",{class:"btn green",onclick:()=>zetZichtbaar("onderwerpen", o.id, true)},"✅ Vrijgeven voor spelers"),
       h("span",{class:"muted small"}, o.zichtbaar ? "Spelers kunnen dit onderwerp spelen." : "Spelers zien dit onderwerp nog niet.")),
     h("p",{class:"muted small"},`${boek} vragen uit het boek en ${extra} vragen buiten het boek staan live (varianten meegeteld). Elke knop hieronder kost één verzoek bij Gemini; je hebt er ongeveer 20 per dag. ‘Andere vraagstelling’ maakt nieuwe versies van de vragen die het vaakst gesteld zijn, zodat spelers de stof leren en niet het antwoord onthouden.`),
-    knoppen, msg,
+    knoppen, msg, soortenBlok,
     voorstellen.length ? h("div",{class:"stack"},
       h("div",{class:"row"}, h("h3",null,`Te controleren (${voorstellen.length})`),
         h("button",{class:"btn green",style:"margin-left:auto",onclick:()=>{ if (confirm(`Alle ${voorstellen.length} voorstellen goedkeuren?`)) zet(voorstellen.map(q=>q.id),"actief"); }},"Alles goedkeuren")),
@@ -946,7 +999,7 @@ async function startRonde(soort, id){
   const owIds = soort === "toets" ? toetsOnderwerpen(id) : [Number(id)];
   const titel = soort === "toets" ? toets(id)?.titel : onderwerp(id)?.titel;
   const nDoel = soort === "toets" ? TOETS_N[d] : DIFF[d].n;
-  const { data: vragen, error } = await sb.from("vragen").select("id, onderwerp_id, vraag, opties, juist, uitleg, bron, emoji, moeilijkheid, soort, variant_van").in("onderwerp_id", owIds).eq("status","actief");
+  const { data: vragen, error } = await sb.from("vragen").select("id, onderwerp_id, type, vraag, opties, juist, uitleg, bron, emoji, moeilijkheid, soort, variant_van").in("onderwerp_id", owIds).eq("status","actief");
   if (error) return render(h("p",{class:"note err"},fout(error)));
   const ids = vragen.map(q => q.id);
   const { data: vg } = ids.length ? await sb.from("voortgang").select("vraag_id, keer_gezien, laatst_fout").eq("speler_id", S.user.id).in("vraag_id", ids) : { data:[] };
@@ -972,7 +1025,8 @@ async function startRonde(soort, id){
   const keuze = [...extra.slice(0,nExtra), ...boek];
   if (keuze.length < n) keuze.push(...extra.slice(nExtra, nExtra + n - keuze.length));
   if (keuze.length < 4) return render(h("p",{class:"note warn"},"Er zijn nog te weinig vragen om te spelen."));
-  S.ronde = { soort, id:Number(id), titel, d, metTijd, vgMap, i:0, score:0, reeks:0, langste:0, goed:0, antwoorden:[],
+  const taal = vak((soort === "toets" ? toets(id) : onderwerp(id))?.vak_id)?.taal || null;
+  S.ronde = { soort, id:Number(id), titel, taal, d, metTijd, vgMap, i:0, score:0, reeks:0, langste:0, goed:0, antwoorden:[],
     lijst: shuffle(keuze).map(q => ({ q, opts: shuffle(q.opties.map((t,i)=>({t, ok:i===q.juist}))) })) };
   S.terug = `#${soort}/${id}`;
   if (location.hash !== "#spelen") location.hash = "#spelen";
@@ -981,34 +1035,38 @@ async function startRonde(soort, id){
 
 function toonVraag(){
   const r = S.ronde, item = r.lijst[r.i], q = item.q, cfg = DIFF[r.d];
+  const type = q.type || "meerkeuze";
+  const tijd = cfg.tijd * (TIJD_FACTOR[type] || 1);
   let beantwoord = false; const t0 = performance.now();
   const balk = h("i"); const timer = r.metTijd ? h("div",{class:"timer","aria-hidden":"true"},balk) : null;
-  const answers = h("div",{class:"answers"});
   const fb = h("div",{class:"fb"});
-  item.opts.forEach((o,i) => answers.append(h("button",{class:"ans",onclick:()=>antwoord(i)}, h("span",{class:"k"},"ABCD"[i]), h("span",null,o.t))));
   const hudKids = () => [h("span",null,`Vraag ${r.i+1} van ${r.lijst.length} · ${cfg.sterren}`),
     h("span",{class:"row",style:"gap:8px"}, r.reeks>=3 ? h("span",{class:"pill"},`🔥 ×${r.reeks>=5?2:1.5}`) : null, h("span",{class:"pill"},`⭐ ${nl(r.score)}`))];
   const hud = h("div",{class:"hud"},hudKids());
+  let opTijd = () => {};               // wat er gebeurt als de tijd op is
+  S.toets = null;
 
-  function antwoord(idx){
+  // Gemeenschappelijk: punten, opslaan en uitleg tonen
+  function afronden({ ok, factor = 1, teLaat = false, bijna = false, gegeven = "", juistTekst = "", mc = null }){
     if (beantwoord) return; beantwoord = true; stopTimer();
     const ms = performance.now() - t0;
-    const ok = idx >= 0 && item.opts[idx].ok;
-    const juistIdx = item.opts.findIndex(o => o.ok);
-    answers.classList.add("done");
-    [...answers.children].forEach((b,j)=>{ b.disabled = true; if (j===juistIdx) b.classList.add("right"); else if (j===idx) b.classList.add("wrong"); else b.classList.add("dim"); });
     let punten = 0;
     if (ok){
       r.reeks++; r.goed++; r.langste = Math.max(r.langste, r.reeks);
       const reeksMult = r.reeks >= 5 ? 2 : r.reeks >= 3 ? 1.5 : 1;
-      const bonus = r.metTijd ? Math.round(50 * Math.max(0, 1 - ms/(cfg.tijd*1000))) : 0;
-      punten = Math.round((100 + bonus) * reeksMult * cfg.mult); r.score += punten;
+      const bonus = r.metTijd ? Math.round(50 * Math.max(0, 1 - ms/(tijd*1000))) : 0;
+      punten = Math.round((100 + bonus) * reeksMult * cfg.mult * factor); r.score += punten;
     } else r.reeks = 0;
-    r.antwoorden.push({ v:q.id, w:q.onderwerp_id, q:q.vraag, e:q.emoji, o:item.opts.map(o=>o.t), c:idx, r:juistIdx, ok, u:q.uitleg, b:q.bron, s:q.soort, p:punten });
+    const basis = { v:q.id, w:q.onderwerp_id, q:q.vraag, e:q.emoji, ok, u:q.uitleg, b:q.bron, s:q.soort, p:punten };
+    r.antwoorden.push(mc ? { ...basis, o:mc.o, c:mc.c, r:mc.r } : { ...basis, t:type, o:[], c: teLaat ? -1 : 0, r:0, in:gegeven, g:juistTekst });
+    const ookGoed = type === "typen" && q.opties.length > 1 ? q.opties.slice(1).join(" · ") : null;
     fb.className = "fb card " + (ok ? "ok" : "no");
     fb.replaceChildren(
-      h("h3",null, ok ? (r.reeks>=3 ? `🔥 Goed! ${r.reeks} op rij` : "✅ Goed zo!") : (idx<0 ? "⏰ Te laat!" : "❌ Helaas")),
-      ok ? h("div",{class:"pop"},`+${nl(punten)} punten`) : h("p",null,"Het juiste antwoord is: ", h("strong",null,item.opts[juistIdx].t)),
+      h("h3",null, ok ? (factor < 1 ? "✅ Goed, maar let op de accenten" : r.reeks>=3 ? `🔥 Goed! ${r.reeks} op rij` : "✅ Goed zo!")
+                      : teLaat ? "⏰ Te laat!" : bijna ? "😬 Bijna! Let op de spelling" : "❌ Helaas"),
+      ok ? h("div",{class:"pop"},`+${nl(punten)} punten`) : null,
+      (!ok || factor < 1) ? h("p",null,"Het juiste antwoord is: ", h("strong",null,juistTekst)) : null,
+      ookGoed ? h("p",{class:"muted small"},"Ook goed: " + ookGoed) : null,
       q.soort==="extra" ? h("span",{class:"tag extra"},"🌐 Buiten het boek") : null,
       q.uitleg ? h("p",null,q.uitleg) : null,
       q.bron ? h("p",{class:"src small"}, (q.soort==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + q.bron + "”") : null,
@@ -1017,21 +1075,117 @@ function toonVraag(){
     document.getElementById("verder")?.focus();
   }
   function verder(){ r.i++; if (r.i < r.lijst.length) toonVraag(); else klaar(); }
+
+  let speelveld;
+  if (type === "meerkeuze"){
+    speelveld = h("div",{class:"answers"});
+    item.opts.forEach((o,i) => speelveld.append(h("button",{class:"ans",onclick:()=>kies(i)}, h("span",{class:"k"},"ABCD"[i]), h("span",null,o.t))));
+    function kies(idx){
+      if (beantwoord) return;
+      const juistIdx = item.opts.findIndex(o => o.ok);
+      speelveld.classList.add("done");
+      [...speelveld.children].forEach((b,j)=>{ b.disabled = true; if (j===juistIdx) b.classList.add("right"); else if (j===idx) b.classList.add("wrong"); else b.classList.add("dim"); });
+      afronden({ ok: idx >= 0 && item.opts[idx].ok, teLaat: idx < 0, juistTekst: item.opts[juistIdx].t, mc:{ o:item.opts.map(o=>o.t), c:idx, r:juistIdx } });
+    }
+    opTijd = () => kies(-1);
+    S.toets = e => { if (beantwoord) return; const n = "1234".indexOf(e.key) >= 0 ? "1234".indexOf(e.key) : "abcd".indexOf(e.key.toLowerCase()); if (e.key.length===1 && n >= 0) kies(n); };
+  }
+  else if (type === "typen"){
+    const invoer = h("input",{type:"text",autocomplete:"off",autocapitalize:"off",autocorrect:"off",spellcheck:"false","aria-label":"Jouw antwoord",placeholder:"Typ je antwoord…"});
+    const knop = h("button",{class:"btn green big",type:"submit"},"Controleer");
+    const accenten = ACCENTEN[r.taal] ? h("div",{class:"accenten"}, ACCENTEN[r.taal].split(" ").map(c => h("button",{type:"button",onclick:()=>{
+      const a = invoer.selectionStart ?? invoer.value.length, b = invoer.selectionEnd ?? a;
+      invoer.value = invoer.value.slice(0,a) + c + invoer.value.slice(b); invoer.focus(); invoer.setSelectionRange(a+c.length, a+c.length); }},c))) : null;
+    speelveld = h("form",{class:"typ stack",onsubmit:e=>{ e.preventDefault(); if (invoer.value.trim()) controleer(false); }}, invoer, accenten, h("div",null,knop));
+    function controleer(teLaat){
+      invoer.disabled = true; knop.disabled = true; accenten?.querySelectorAll("button").forEach(b=>b.disabled=true);
+      const g = normTekst(invoer.value);
+      const goed = !teLaat && g && q.opties.some(o => normTekst(o) === g);
+      const accent = !teLaat && !goed && g && q.opties.some(o => zonderAccent(normTekst(o)) === zonderAccent(g));
+      const bijna = !teLaat && !goed && !accent && g && q.opties.some(o => normTekst(o).length >= 4 && levenshtein(normTekst(o), g) <= 1);
+      invoer.style.borderColor = goed ? "var(--good)" : accent ? "var(--orange)" : "var(--bad)";
+      afronden({ ok: goed || accent, factor: accent ? .5 : 1, teLaat, bijna, gegeven: invoer.value.trim(), juistTekst: q.opties[0] });
+    }
+    opTijd = () => controleer(true);
+    setTimeout(() => invoer.focus(), 50);
+  }
+  else if (type === "volgorde"){
+    const woorden = q.opties.map((t,i) => ({ t, i }));
+    let bank = shuffle(woorden);
+    for (let k = 0; k < 5 && woorden.length > 2 && bank.every((w,j) => w.t === woorden[j].t); k++) bank = shuffle(woorden);
+    let zin = [];
+    const zinVak = h("div",{class:"chips","aria-label":"Jouw zin"}), bankVak = h("div",{class:"chips bank","aria-label":"Woorden"});
+    const knop = h("button",{class:"btn green big",disabled:true,onclick:()=>controleer(false)},"Controleer");
+    function teken(){
+      zinVak.replaceChildren(...(zin.length ? zin.map((w,j) => h("button",{class:"chip in",disabled:beantwoord,onclick:()=>{ zin.splice(j,1); bank.push(w); teken(); }},w.t)) : [h("span",{class:"leeg"},"Tik de woorden in de goede volgorde")]));
+      bankVak.replaceChildren(...bank.map((w,j) => h("button",{class:"chip",disabled:beantwoord,onclick:()=>{ bank.splice(j,1); zin.push(w); teken(); }},w.t)));
+      knop.disabled = beantwoord || bank.length > 0;
+    }
+    function controleer(teLaat){
+      const gegeven = zin.map(w => w.t).join(" ");
+      const ok = !teLaat && normTekst(gegeven) === normTekst(q.opties.join(" "));
+      beantwoord = true; teken(); beantwoord = false;
+      zinVak.style.borderColor = ok ? "var(--good)" : "var(--bad)";
+      afronden({ ok, teLaat, gegeven: gegeven || "(niets)", juistTekst: q.opties.join(" ") });
+    }
+    teken();
+    speelveld = h("div",null, zinVak, bankVak, h("div",{style:"margin-top:14px"},knop));
+    opTijd = () => controleer(true);
+  }
+  else {  // koppelen
+    const paren = q.opties.map(t => t.split(/\s*=\s*/));
+    const links = shuffle(paren.map((p,i) => ({ t:p[0], i }))), rechts = shuffle(paren.map((p,i) => ({ t:p[1], i })));
+    const koppel = new Map();          // links-index -> rechts-index
+    let gekozen = null;
+    const kolL = h("div",{class:"kol"}), kolR = h("div",{class:"kol"});
+    const knop = h("button",{class:"btn green big",disabled:true,onclick:()=>controleer(false)},"Controleer");
+    let klaarGezet = false;
+    function kleur(li){ return KOPPEL_KLEUREN[[...koppel.keys()].indexOf(li) % KOPPEL_KLEUREN.length]; }
+    function teken(){
+      kolL.replaceChildren(...links.map(l => { const gepaard = koppel.has(l.i);
+        return h("button",{class:"kp" + (gekozen===l.i ? " sel" : "") + (klaarGezet ? (koppel.get(l.i)===l.i ? " goed" : " mis") : ""),disabled:beantwoord,
+          style: gepaard ? `background:${kleur(l.i)};color:#fff` : null,
+          onclick:()=>{ if (gepaard){ koppel.delete(l.i); gekozen = null; } else gekozen = (gekozen===l.i ? null : l.i); teken(); }}, l.t); }));
+      const rechtsBezet = new Map([...koppel.entries()].map(([li,ri]) => [ri,li]));
+      kolR.replaceChildren(...rechts.map(rr => { const li = rechtsBezet.get(rr.i);
+        return h("button",{class:"kp",disabled:beantwoord,style: li != null ? `background:${kleur(li)};color:#fff` : null,
+          onclick:()=>{ if (li != null){ koppel.delete(li); } else if (gekozen != null){ koppel.set(gekozen, rr.i); gekozen = null; } teken(); }}, rr.t); }));
+      knop.disabled = beantwoord || koppel.size < paren.length;
+    }
+    function controleer(teLaat){
+      const ok = !teLaat && paren.every((_,i) => koppel.get(i) === i);
+      klaarGezet = true; beantwoord = true; teken(); beantwoord = false;
+      const gegeven = [...koppel.entries()].map(([li,ri]) => `${paren[li][0]} = ${paren[ri][1]}`).join(" · ");
+      afronden({ ok, teLaat, gegeven: gegeven || "(niets)", juistTekst: paren.map(p => `${p[0]} = ${p[1]}`).join(" · ") });
+    }
+    teken();
+    speelveld = h("div",null, h("p",{class:"muted small",style:"margin:14px 0 0"},"Tik links een woord en dan rechts wat erbij hoort. Tik nog eens om los te maken."),
+      h("div",{class:"koppel"}, kolL, kolR), h("div",{style:"margin-top:14px"},knop));
+    opTijd = () => controleer(true);
+  }
+
   render(hud, timer,
     h("div",{class:"card qcard"}, q.soort==="extra" ? h("span",{class:"tag extra"},"🌐 Buiten het boek") : null,
       h("div",{class:"emo","aria-hidden":"true"},q.emoji), h("div",{class:"qtext"},q.vraag)),
-    answers, fb);
-  S.toets = e => { if (beantwoord || !S.ronde) return; const n = "1234".indexOf(e.key) >= 0 ? "1234".indexOf(e.key) : "abcd".indexOf(e.key.toLowerCase()); if (e.key.length===1 && n >= 0) antwoord(n); };
+    speelveld, fb);
   if (r.metTijd){
     const tik = () => {
-      const over = Math.max(0, 1 - (performance.now()-t0)/(cfg.tijd*1000));
+      const over = Math.max(0, 1 - (performance.now()-t0)/(tijd*1000));
       balk.style.width = (over*100) + "%"; timer.classList.toggle("low", over < .25);
-      if (over <= 0) antwoord(-1); else TIMER.raf = requestAnimationFrame(tik);
+      if (over <= 0) opTijd(); else TIMER.raf = requestAnimationFrame(tik);
     };
     TIMER.raf = requestAnimationFrame(tik);
   }
 }
-document.addEventListener("keydown", e => S.toets && location.hash === "#spelen" && S.toets(e));
+const normTekst = t => String(t||"").toLowerCase().replace(/[’‘`´]/g,"'").replace(/[“”„]/g,'"').replace(/\s+/g," ").replace(/\s*([.,!?;:])\s*/g,"$1 ").replace(/[.!?,;:\s]+$/,"").trim();
+const zonderAccent = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/ß/g,"ss").replace(/œ/g,"oe");
+function levenshtein(a, b){
+  const d = Array.from({length:a.length+1}, (_,i) => [i, ...Array(b.length).fill(0)]);
+  for (let j=1;j<=b.length;j++) d[0][j] = j;
+  for (let i=1;i<=a.length;i++) for (let j=1;j<=b.length;j++) d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1]===b[j-1]?0:1));
+  return d[a.length][b.length];
+}
+document.addEventListener("keydown", e => { if (!S.toets || location.hash !== "#spelen" || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; S.toets(e); });
 
 async function klaar(){
   const r = S.ronde; S.toets = null;
@@ -1067,7 +1221,10 @@ function reviewLijst(antw){
     antw.map(a => h("div",{class:"rv"},
       h("div",null, h("span",{class:"mark"}, a.ok ? "✅" : "❌"), h("strong",null, (a.e||"") + " " + a.q),
         a.s==="extra" ? h("span",{class:"tag extra",style:"margin-left:6px"},"Buiten het boek") : null),
-      a.ok ? h("div",null,"Jouw antwoord: ", h("strong",null,a.o[a.r]), ` (+${nl(a.p)})`)
+      a.t && a.t !== "meerkeuze"
+        ? h("div",null, a.c < 0 && !a.in ? "Je was te laat. " : h("span",null,"Jouw antwoord: ", a.ok ? h("strong",null,a.in) : h("s",null,a.in), a.ok ? ` (+${nl(a.p)})` : " · "),
+            !a.ok || a.in !== a.g ? h("span",null,"Goed is: ", h("strong",null,a.g)) : null)
+      : a.ok ? h("div",null,"Jouw antwoord: ", h("strong",null,a.o[a.r]), ` (+${nl(a.p)})`)
            : h("div",null, a.c < 0 ? "Je was te laat. " : h("span",null,"Jouw antwoord: ", h("s",null,a.o[a.c]), " · "), "Goed was: ", h("strong",null,a.o[a.r])),
       a.u ? h("div",{class:"small",style:"margin-top:4px"},a.u) : null,
       a.b ? h("div",{class:"src small"},(a.s==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + a.b + "”") : null)));
@@ -1298,8 +1455,8 @@ async function viewOverzichtSpeler(id){
     x.rondes++; x.goed += r.goed; x.tot += r.totaal; perOw.set(sleutel, x);
     for (const a of r.antwoorden || []){
       x.gezien.add(a.v);
-      const v = perVraag.get(a.v) || { tekst:a.q, emoji:a.e, ow:a.w || r.onderwerp_id, juist:a.o?.[a.r], n:0, fout:0, laatstFout:null };
-      v.n++; if (!a.ok){ v.fout++; if (!v.laatstFout) v.laatstFout = a.c >= 0 ? a.o[a.c] : "te laat"; } perVraag.set(a.v, v);
+      const v = perVraag.get(a.v) || { tekst:a.q, emoji:a.e, ow:a.w || r.onderwerp_id, juist: a.g || a.o?.[a.r], n:0, fout:0, laatstFout:null };
+      v.n++; if (!a.ok){ v.fout++; if (!v.laatstFout) v.laatstFout = a.t && a.t !== "meerkeuze" ? (a.in || "te laat") : a.c >= 0 ? a.o[a.c] : "te laat"; } perVraag.set(a.v, v);
     }
   }
   const families = new Map(); // onderwerp -> families (vraag + varianten tellen als één)
