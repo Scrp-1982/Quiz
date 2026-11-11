@@ -104,7 +104,8 @@ textarea{min-height:80px;resize:vertical}
 .kleurkies{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .kleurkies input[type=color]{width:56px;height:46px;border:2px solid var(--line);border-radius:8px;background:#0F1420;padding:2px;cursor:pointer}
 .voorbeeld{width:220px}
-.tile h3{margin-top:auto;font-size:1.45rem;text-shadow:0 2px 0 rgba(0,0,0,.35)}
+.tile{container-type:inline-size}
+.tile h3{margin-top:auto;font-size:clamp(.95rem,10.5cqw,1.45rem);line-height:1.1;overflow-wrap:anywhere;hyphens:auto;text-shadow:0 2px 0 rgba(0,0,0,.35)}
 .tile .small{opacity:.9}
 .tile.add{background:transparent;box-shadow:inset 0 0 0 2px var(--line);color:var(--muted);align-items:center;justify-content:center;text-align:center}
 .tile.add::after{display:none}
@@ -211,7 +212,7 @@ summary{cursor:pointer;font-weight:600}
 <script>
 "use strict";
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-11.8";
+const VERSIE = "2026-11-11.9";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
