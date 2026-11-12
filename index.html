@@ -161,6 +161,13 @@ summary{cursor:pointer;font-weight:600}
 .auth-tabs{display:flex;border:2px solid var(--line);border-radius:10px;overflow:hidden}
 .auth-tabs button{flex:1;border:0;background:#0F1420;padding:10px;font-weight:600;cursor:pointer}
 .auth-tabs button[aria-selected="true"]{background:var(--hot);color:#160A02}
+.spelerbalk{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;
+  background:var(--cyan);color:#04161A;padding:8px 14px;border-radius:10px;margin-bottom:14px;font-weight:600}
+.spelerbalk .btn{min-height:38px;padding:4px 12px;font-size:.95rem;background:#04161A;color:#fff;box-shadow:none}
+.adminstrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.adminstrip button{text-align:left;border:0;clip-path:var(--cut);background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);padding:14px;cursor:pointer;color:var(--text)}
+.adminstrip b{display:block;font-family:var(--display);font-size:1.8rem;line-height:1}
+.adminstrip .warn b{color:var(--orange)}
 .btabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:2px solid var(--line);padding-bottom:0;margin-bottom:18px}
 .btabs button{border:0;background:transparent;color:var(--muted);padding:10px 14px;font-family:var(--display);font-weight:700;font-size:1.1rem;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
 .btabs button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--hot)}
@@ -250,7 +257,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-11.14";
+const VERSIE = "2026-11-12.1";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -318,15 +325,26 @@ function toast(tekst){
   const t = h("div",{class:"toast",role:"status"},tekst); document.body.append(t);
   setTimeout(()=>t.remove(), 4000);
 }
-function go(hash){ if (location.hash === hash) route(); else location.hash = hash; }
-function render(...nodes){ stopTimer(); $app.replaceChildren(header(), ...nodes.filter(n => n != null && n !== false), h("p",{class:"version muted small"},"Versie " + VERSIE)); window.scrollTo(0,0); }
+function go(hash){ if ((location.hash || "#") === (hash || "#")) route(); else location.hash = hash; }
+function render(...nodes){ stopTimer(); $app.replaceChildren(header(),
+  S.alsSpeler && echtBeheerder() ? h("div",{class:"spelerbalk",role:"status"}, h("span",null,"👀 Je bekijkt de app als speler. Rondes worden niet opgeslagen."),
+    h("button",{class:"btn",onclick:()=>wisselWeergave(false)},"Terug naar beheer")) : null, ...nodes.filter(n => n != null && n !== false), h("p",{class:"version muted small"},"Versie " + VERSIE)); window.scrollTo(0,0); }
 function laden(titel, sub){ $app.replaceChildren(header(), h("div",{class:"card loading"}, h("div",{class:"spinner",role:"img","aria-label":"Bezig"}), h("h3",null,titel), sub ? h("p",{class:"muted",id:"laadtekst"},sub) : null)); }
 function fout(e){ console.error(e); return (e && (e.message || e.error_description)) || String(e); }
 
 /* ============ status ============ */
 const S = { user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
-const isBeheerderRol = () => S.profiel?.rol === "beheerder";
+// Een beheerder kan de app bekijken zoals een speler hem ziet (S.alsSpeler)
+S.alsSpeler = sessionStorage.getItem("qm:alsSpeler") === "1";
+const echtBeheerder = () => S.profiel?.rol === "beheerder";
+const isBeheerderRol = () => echtBeheerder() && !S.alsSpeler;
 const isBeheerder = () => isBeheerderRol() && S.aal === "aal2";
+const telMee = spelerId => profiel(spelerId)?.rol !== "beheerder";   // beheerders staan niet op scoreborden
+function wisselWeergave(alsSpeler){
+  S.alsSpeler = alsSpeler; sessionStorage.setItem("qm:alsSpeler", alsSpeler ? "1" : "0");
+  toast(alsSpeler ? "Je ziet de app nu zoals een speler." : "Terug in de beheerdersweergave.");
+  go(alsSpeler ? "#" : "#beheer");
+}
 const vak = id => S.vakken.find(v => v.id == id);
 const onderwerp = id => S.onderwerpen.find(o => o.id == id);
 const profiel = id => S.profielen.find(p => p.id === id);
@@ -517,6 +535,21 @@ async function viewMfa(terug){
 }
 
 /* ============ home: tegels ============ */
+// Bovenaan het beginscherm van een beheerder: korte stand van zaken in plaats van punten
+function beheerStrip(){
+  const spelers = S.profielen.filter(p => p.rol !== "beheerder");
+  const week = new Set(S.rondes.filter(r => Date.now()-new Date(r.gespeeld_op) < 7*864e5 && telMee(r.speler_id)).map(r => r.speler_id)).size;
+  const live = S.onderwerpen.filter(o => o.zichtbaar).length, verborgen = S.onderwerpen.length - live;
+  const teControleren = h("b",null,"…");
+  if (isBeheerder()) sb.from("vragen").select("id",{count:"exact",head:true}).eq("status","voorstel").then(({count}) => { teControleren.textContent = count ?? 0; teControleren.parentElement?.classList.toggle("warn", count > 0); });
+  return h("div",{class:"stack"},
+    h("div",{class:"row"}, h("h1",{style:"flex:1"},`Hoi ${S.profiel?.naam || ""}`),
+      h("button",{class:"btn",onclick:()=>wisselWeergave(true)},"👀 Bekijk als speler")),
+    h("div",{class:"adminstrip"},
+      h("button",{onclick:()=>go("#beheer/quizzen")}, isBeheerder() ? teControleren : h("b",null,"🔒"), isBeheerder() ? "vragen te controleren" : "ontgrendel Beheer"),
+      h("button",{onclick:()=>go("#beheer/quizzen")}, h("b",null,live), verborgen ? `quizzen live · ${verborgen} verborgen` : "quizzen live"),
+      h("button",{onclick:()=>go("#beheer/gebruikers")}, h("b",null,`${week}/${spelers.length}`), "spelers actief deze week")));
+}
 function viewHome(){
   const flash = S.flash; S.flash = null;
   const tegels = S.vakken.map(v => {
@@ -532,7 +565,8 @@ function viewHome(){
         : h("p",{class:"muted"}, isBeheerderRol() ? "Ontgrendel Beheer om vakken toe te voegen." : "De beheerder heeft nog geen vakken aangemaakt.")) : null;
   render(
     flash ? h("p",{class:"note ok"},flash) : null,
-    h("div",{class:"stack"}, h("h1",null,`Welkom terug, ${S.profiel?.naam || ""}`), rangBalk(S.rondes.filter(r=>r.speler_id===S.user.id).reduce((t,r)=>t+r.score,0))),
+    echtBeheerder() && !S.alsSpeler ? beheerStrip()
+      : h("div",{class:"stack"}, h("h1",null,`Welkom terug, ${S.profiel?.naam || ""}`), rangBalk(S.rondes.filter(r=>r.speler_id===S.user.id).reduce((t,r)=>t+r.score,0))),
     komendeToetsen(),
     h("div",{style:"height:18px"}), leeg, h("div",{class:"grid"},tegels));
 }
@@ -682,7 +716,7 @@ async function maakIcoon(file){
 /* ============ vak: onderwerpen ============ */
 function viewVak(id){
   const v = vak(id); if (!v) return go("#");
-  const lijst = S.onderwerpen.filter(o => o.vak_id === v.id);
+  const lijst = S.onderwerpen.filter(o => o.vak_id === v.id && (o.zichtbaar || isBeheerder()));
   const kaarten = lijst.map(o => {
     const b = beste(S.user.id, "onderwerp", o.id);
     return h("button",{class:"card topic",onclick:()=>go("#onderwerp/"+o.id)},
@@ -691,7 +725,7 @@ function viewVak(id){
       h("div",{class:"muted small"}, `${o.aantal} vragen · ${o.niveau}`),
       h("div",{class:"best"}, b ? `🏆 ${nl(b)}` : "Nog niet gespeeld"));
   });
-  const toetsen = S.toetsen.filter(t => t.vak_id === v.id);
+  const toetsen = S.toetsen.filter(t => t.vak_id === v.id && (t.zichtbaar || isBeheerder()));
   const toetsKaarten = toetsen.map(t => {
     const b = beste(S.user.id, "toets", t.id), n = toetsOnderwerpen(t.id).length;
     return h("button",{class:"card topic",style:"border-color:var(--hot)",onclick:()=>go("#toets/"+t.id)},
@@ -842,7 +876,7 @@ function speelPaneel(soort, id, aantalVragen){
   tekenSeg();
   function tekenBord(){
     const per = new Map();
-    for (const r of S.rondes.filter(r => r[soort+"_id"] == id && r.moeilijkheid == gekozenDiff))
+    for (const r of S.rondes.filter(r => r[soort+"_id"] == id && r.moeilijkheid == gekozenDiff && telMee(r.speler_id)))
       if (!per.has(r.speler_id) || per.get(r.speler_id).score < r.score) per.set(r.speler_id, r);
     const top = [...per.values()].sort((a,b)=>b.score-a.score).slice(0,10);
     bord.replaceChildren(h("h3",null,`🏆 Records op ${DIFF[gekozenDiff].naam}`),
@@ -868,7 +902,7 @@ function speelPaneel(soort, id, aantalVragen){
 }
 
 async function viewOnderwerp(id){
-  const o = onderwerp(id); if (!o) return go("#");
+  const o = onderwerp(id); if (!o || (!o.zichtbaar && !isBeheerder())) return go("#");
   const v = vak(o.vak_id);
   const flash = S.flash; S.flash = null;
   laden("Laden…");
@@ -977,7 +1011,7 @@ document.addEventListener("toggle", async e => {
 /* ============ toetsen ============ */
 const TOETS_N = { 1:12, 2:16, 3:20 };
 async function viewToets(id){
-  const t = toets(id); if (!t) return go("#");
+  const t = toets(id); if (!t || (!t.zichtbaar && !isBeheerder())) return go("#");
   const v = vak(t.vak_id);
   laden("Laden…");
   const owIds = toetsOnderwerpen(t.id);
@@ -990,7 +1024,7 @@ async function viewToets(id){
     t.datum && dagenTot(t.datum) >= 0 ? h("p",{class:"note warn"},"📅 " + toetsDatumTekst(t.datum).replace(/!$/,"") + ". Oefen elke dag een rondje, dan zit de stof erin.") : null,
     !t.zichtbaar ? h("p",{class:"note warn"},"🙈 Deze eindtoets is nog niet vrijgegeven. Alleen beheerders zien hem.") : null,
     h("div",{class:"card"}, h("h3",null,"Deze eindtoets gaat over"),
-      h("table",null,h("tbody",null, owIds.map(oid => { const o = onderwerp(oid);
+      h("table",null,h("tbody",null, owIds.map(oid => { const o = onderwerp(oid) && (onderwerp(oid).zichtbaar || isBeheerder()) ? onderwerp(oid) : null;
         return h("tr",{class: o ? "clickrow" : null, onclick: o ? ()=>go("#onderwerp/"+o.id) : null},
           h("td",null, o ? o.emoji+" "+o.titel : "Quiz (nog niet vrijgegeven)"), h("td",{class:"num muted"},`${tel.get(oid)||0} vragen`)); }))),
       h("p",{class:"muted small"},"De vragen komen door elkaar uit al deze quizzen, ongeveer evenveel uit elk.")),
@@ -1261,24 +1295,29 @@ document.addEventListener("keydown", e => { if (!S.toets || location.hash !== "#
 async function klaar(){
   const r = S.ronde; S.toets = null;
   const oudRecord = beste(S.user.id, r.soort, r.id, r.d);
-  laden("Score opslaan…");
-  const rij = { [r.soort + "_id"]: r.id, moeilijkheid:r.d, met_tijd:r.metTijd, score:r.score, goed:r.goed, totaal:r.lijst.length, langste_reeks:r.langste, antwoorden:r.antwoorden };
-  const { data, error } = await sb.from("rondes").insert(rij).select(RONDE_VELDEN).single();
-  const vg = r.antwoorden.map(a => ({ speler_id:S.user.id, vraag_id:a.v, keer_gezien:(r.vgMap.get(a.v)?.keer_gezien||0)+1, laatst_fout:!a.ok, bijgewerkt:new Date().toISOString() }));
-  await sb.from("voortgang").upsert(vg, { onConflict:"speler_id,vraag_id" });
-  if (data) S.rondes.unshift(data);
+  const proef = echtBeheerder();           // een beheerder doet niet mee: zijn rondes worden niet opgeslagen
+  let data = null, error = null;
+  if (!proef){
+    laden("Score opslaan…");
+    const rij = { [r.soort + "_id"]: r.id, moeilijkheid:r.d, met_tijd:r.metTijd, score:r.score, goed:r.goed, totaal:r.lijst.length, langste_reeks:r.langste, antwoorden:r.antwoorden };
+    ({ data, error } = await sb.from("rondes").insert(rij).select(RONDE_VELDEN).single());
+    const vg = r.antwoorden.map(a => ({ speler_id:S.user.id, vraag_id:a.v, keer_gezien:(r.vgMap.get(a.v)?.keer_gezien||0)+1, laatst_fout:!a.ok, bijgewerkt:new Date().toISOString() }));
+    await sb.from("voortgang").upsert(vg, { onConflict:"speler_id,vraag_id" });
+    if (data) S.rondes.unshift(data);
+  }
   S.ronde = null;
-  const record = r.score > oudRecord && r.score > 0;
+  const record = !proef && r.score > oudRecord && r.score > 0;
   const deel = r.goed / r.lijst.length;
   const sterren = deel >= .9 ? 3 : deel >= .7 ? 2 : deel >= .4 ? 1 : 0;
   render(h("div",{class:"stack"},
     error ? h("p",{class:"note err"},"Je score kon niet worden opgeslagen: " + fout(error)) : null,
+    proef ? h("p",{class:"note"},"🧪 Proefronde als beheerder: deze score is niet opgeslagen en staat niet op het scorebord.") : null,
     h("div",{class:"card result stack"},
       record ? h("div",null,h("span",{class:"record"},"🏆 Nieuw record!")) : null,
       h("div",{class:"score"},nl(r.score)), h("div",{class:"muted"},`punten op ${DIFF[r.d].naam}`),
       h("div",{class:"stars","aria-label":`${sterren} van 3 sterren`},"★".repeat(sterren)+"☆".repeat(3-sterren)),
       h("p",null,`${r.goed} van de ${r.lijst.length} goed · langste reeks: ${r.langste}`),
-      !record && oudRecord ? h("p",{class:"muted"},`Je record is ${nl(oudRecord)}. ${oudRecord - r.score <= 300 ? "Bijna!" : "Probeer het nog eens!"}`) : null,
+      !proef && !record && oudRecord ? h("p",{class:"muted"},`Je record is ${nl(oudRecord)}. ${oudRecord - r.score <= 300 ? "Bijna!" : "Probeer het nog eens!"}`) : null,
       h("div",{class:"row",style:"justify-content:center"},
         h("button",{class:"btn green big",onclick:()=>startRonde(r.soort, r.id)},"🔁 Nog een keer"),
         h("button",{class:"btn",onclick:()=>go(S.terug)},"Terug"))),
@@ -1320,7 +1359,7 @@ function viewScorebord(){
   const nu = new Date();
   const start = periode === "week" ? (() => { const d = new Date(nu); d.setHours(0,0,0,0); d.setDate(d.getDate() - ((d.getDay()+6)%7)); return d; })()
               : periode === "maand" ? new Date(nu.getFullYear(), nu.getMonth(), 1) : new Date(0);
-  const rondes = S.rondes.filter(r => new Date(r.gespeeld_op) >= start && (!bordVak || bronVan(r).vak == bordVak));
+  const rondes = S.rondes.filter(r => new Date(r.gespeeld_op) >= start && (!bordVak || bronVan(r).vak == bordVak) && telMee(r.speler_id));
   const per = new Map();
   for (const r of rondes){
     const x = per.get(r.speler_id) || { id:r.speler_id, punten:0, rondes:0, goed:0, totaal:0 };
@@ -1427,7 +1466,8 @@ async function viewBeheer(tab = "quizzen"){
   const tabs = h("div",{class:"btabs",role:"tablist"}, TABS.map(([k,t]) => h("button",{role:"tab","aria-selected":String(k===tab),onclick:()=>go("#beheer/"+k)},t)));
   laden("Laden…");
   const inhoud = tab === "quizzen" ? await beheerQuizzen() : tab === "vakken" ? await beheerVakken() : await beheerGebruikers();
-  render(h("h2",null,"⚙️ Beheer"), h("div",{style:"height:10px"}), tabs, inhoud);
+  render(h("div",{class:"row"}, h("h2",{style:"flex:1"},"⚙️ Beheer"), h("button",{class:"btn",onclick:()=>wisselWeergave(true)},"👀 Bekijk als speler")),
+    h("div",{style:"height:10px"}), tabs, inhoud);
 }
 
 const vakBadge = (v, maat = 40) => h("div",{class:"vakbadge",style:`background:${v.kleur};width:${maat}px;height:${maat}px;font-size:${Math.round(maat*.55)}px`},
