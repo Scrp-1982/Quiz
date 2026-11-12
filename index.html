@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.11";
+const VERSIE = "2026-11-12.12";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -911,7 +911,7 @@ function viewFotos({ vakId, onderwerpId }){
   const camera = h("input",{type:"file",accept:"image/*",capture:"environment",hidden:true,onchange:e=>{voegToe(e.target.files);e.target.value="";}});
   function voegToe(lijst){
     for (const f of lijst){ if (!f.type.startsWith("image/")) continue;
-      if (files.length >= 10){ msg.replaceChildren(h("p",{class:"note warn"},"Maximaal 10 foto’s per keer. Voeg de rest daarna toe met ‘Meer pagina’s toevoegen’.")); break; }
+      if (files.length >= 40){ msg.replaceChildren(h("p",{class:"note warn"},"Maximaal 40 foto’s per keer. Voeg de rest daarna toe met ‘Meer pagina’s toevoegen’.")); break; }
       files.push(f); }
     teken();
   }
@@ -942,14 +942,13 @@ function viewFotos({ vakId, onderwerpId }){
         if (e2) throw e2;
         paden.push(pad);
       }
-      laden("Gemini leest de bladzijden…","Dit duurt meestal 30 seconden tot 2 minuten. Laat dit scherm open.");
-      const res = await roepFunctie({ actie:"fotos", onderwerp_id: ow.id, paden });
+      const res = await verwerkFotos(ow.id);
       await laadAlles();
-      S.flash = `${res.toegevoegd} nieuwe vragen gemaakt (${res.model}). Controleer ze hieronder en keur ze goed.` + (bestaand ? "" : " Geef de quiz daarna vrij, dan kunnen de spelers hem zien.");
+      S.flash = `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s. Controleer ze hieronder en keur ze goed.` + (bestaand ? "" : " Geef de quiz daarna vrij, dan kunnen de spelers hem zien.");
       go("#onderwerp/" + ow.id);
     } catch (e) {
       await laadAlles().catch(()=>{});
-      if (ow && !bestaand) { S.flash = "⚠️ " + fout(e) + " Je kunt het opnieuw proberen met ‘Meer pagina’s toevoegen’."; go("#onderwerp/" + ow.id); }
+      if (ow) { S.flash = "⚠️ " + fout(e) + " Je foto’s zijn bewaard. Ga verder met ‘▶ Lees de resterende foto’s’ bij 📷 Foto’s hieronder."; go("#onderwerp/" + ow.id); }
       else { msg.replaceChildren(h("p",{class:"note err"},fout(e))); }
     }
   }
@@ -964,7 +963,7 @@ function viewFotos({ vakId, onderwerpId }){
       h("div",{class:"drop",tabindex:"0",role:"button",onclick:()=>kies.click(),onkeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();kies.click();}},
         ondragover:e=>e.preventDefault(),ondrop:e=>{e.preventDefault();voegToe(e.dataTransfer.files);}},
         h("div",{style:"font-size:2.2rem"},"🖼️"), h("strong",null,"Kies foto’s of sleep ze hierheen"),
-        h("div",{class:"muted small"},"Maximaal 10 per keer, één bladzijde per foto, recht van boven en met goed licht.")),
+        h("div",{class:"muted small"},"Zoveel als je wilt (tot 40 per keer), één bladzijde per foto, recht van boven en met goed licht. Gemini leest ze in porties van 3, en de foto’s worden bij de quiz bewaard.")),
       kies, camera,
       h("div",null, h("button",{class:"btn blue",onclick:()=>camera.click()},"📷 Foto maken")),
       thumbs),
@@ -985,8 +984,38 @@ async function verklein(file){
     return await new Promise((ok,nok) => c.toBlob(b => b ? ok(b) : nok(new Error("Foto verkleinen mislukt")), "image/jpeg", 0.85));
   } catch { throw new Error("Deze foto kon niet worden gelezen. Gebruik jpg of png."); }
 }
-async function roepFunctie(body){
-  const { data, error } = await sb.functions.invoke("quiz-maken", { body });
+// Leest alle nog niet gelezen foto's van een quiz, 3 per keer, tot ze allemaal klaar zijn
+async function verwerkFotos(owId){
+  const PER = 3; let toegevoegd = 0, fotos = 0, totaal = null, wake = null;
+  try { wake = await navigator.wakeLock?.request("screen"); } catch {}
+  try {
+    for (;;){
+      const { data: open, error } = await sb.from("onderwerp_fotos").select("pad").eq("onderwerp_id", owId).is("verwerkt_op", null).order("aangemaakt");
+      if (error) throw new Error(/verwerkt_op/.test(error.message) ? "Voer eerst SQL-script 11 uit in Supabase." : fout(error));
+      if (!open.length) break;
+      if (totaal == null) totaal = open.length;
+      const deel = open.slice(0, PER).map(f => f.pad), klaar = Math.max(0, totaal - open.length);
+      laden(`Gemini leest foto ${klaar+1}${deel.length > 1 ? "–" + (klaar+deel.length) : ""} van ${totaal}…`,
+        "Per keer 3 foto’s; elk stukje duurt ongeveer een minuut. Houd dit scherm open. Wordt het toch onderbroken, dan ga je later verder waar het gebleven was.");
+      let res;
+      try { res = await roepFunctie({ actie:"fotos", onderwerp_id: owId, paden: deel }, 170000); }
+      catch (e) {
+        if (e.teLang){   // misschien is hij toch klaar geworden
+          const { data: nogOpen } = await sb.from("onderwerp_fotos").select("pad").in("pad", deel).is("verwerkt_op", null);
+          if (nogOpen && nogOpen.length < deel.length) { fotos += deel.length; continue; }
+        }
+        throw e;
+      }
+      toegevoegd += res.toegevoegd; fotos += deel.length;
+      await sb.from("onderwerp_fotos").update({ verwerkt_op: new Date().toISOString() }).in("pad", deel);
+    }
+  } finally { try { await wake?.release(); } catch {} }
+  return { toegevoegd, fotos };
+}
+async function roepFunctie(body, wachttijd = 170000){
+  let klok;
+  const teLang = new Promise((_, nee) => { klok = setTimeout(() => { const e = new Error("Gemini deed er te lang over."); e.teLang = true; nee(e); }, wachttijd); });
+  const { data, error } = await Promise.race([sb.functions.invoke("quiz-maken", { body }), teLang]).finally(() => clearTimeout(klok));
   if (error) throw new Error("De functie quiz-maken gaf een fout: " + fout(error));
   if (!data?.ok) throw new Error(data?.fout || "Onbekende fout van de functie.");
   return data;
@@ -1076,6 +1105,39 @@ async function zetZichtbaar(tabel, id, aan){
   if (error) return toast(fout(error));
   await laadAlles(); toast(aan ? "Vrijgegeven voor spelers." : "Verborgen voor spelers."); route();
 }
+// Alle foto's van een quiz: bekijken, verwijderen en de nog niet gelezen foto's laten lezen
+function fotoBlok(o){
+  const kop = h("summary",null,"📷 Foto’s van deze quiz");
+  const inhoud = h("div",{class:"stack",style:"margin-top:10px"}, h("p",{class:"muted small"},"Laden…"));
+  const blok = h("details",null, kop, inhoud);
+  (async () => {
+    const { data: fotos, error } = await sb.from("onderwerp_fotos").select("id, pad, verwerkt_op, aangemaakt").eq("onderwerp_id", o.id).order("aangemaakt");
+    if (error){ inhoud.replaceChildren(h("p",{class:"note err"}, /verwerkt_op/.test(error.message) ? "Voer eerst SQL-script 11 uit in Supabase." : fout(error))); return; }
+    const open = fotos.filter(f => !f.verwerkt_op);
+    kop.textContent = `📷 Foto’s van deze quiz (${fotos.length}${open.length ? ` · ${open.length} nog niet gelezen` : ""})`;
+    if (open.length) blok.open = true;
+    if (!fotos.length) return inhoud.replaceChildren(h("p",{class:"muted"},"Nog geen foto’s."));
+    const { data: urls } = await sb.storage.from("fotos").createSignedUrls(fotos.map(f => f.pad), 3600);
+    const url = new Map((urls||[]).map(u => [u.path, u.signedUrl]));
+    inhoud.replaceChildren(
+      open.length ? h("div",{class:"row"}, h("button",{class:"btn green",onclick:async()=>{
+          try { const res = await verwerkFotos(o.id); await laadAlles(); S.flash = `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s. Controleer ze hieronder.`; }
+          catch (e) { await laadAlles().catch(()=>{}); S.flash = "⚠️ " + fout(e) + " Probeer het straks nog eens; de foto’s blijven bewaard."; }
+          viewOnderwerp(o.id);
+        }}, `▶ Lees de ${open.length} resterende foto’s`), h("span",{class:"muted small"},"Gemini leest ze in porties van 3.")) : null,
+      h("div",{class:"thumbs"}, fotos.map((f,i) => h("div",{class:"thumb",title: f.verwerkt_op ? "Gelezen" : "Nog niet gelezen"},
+        h("a",{href:url.get(f.pad)||"#",target:"_blank",rel:"noopener"}, h("img",{src:url.get(f.pad)||"",alt:`Foto ${i+1}`,loading:"lazy"})),
+        h("span",{style:"position:absolute;left:4px;bottom:4px;background:var(--bg);border-radius:6px;padding:1px 6px;font-size:.8rem"}, f.verwerkt_op ? "✅" : "⏳"),
+        h("button",{"aria-label":`Foto ${i+1} verwijderen`,onclick:async()=>{
+          if (!confirm("Deze foto verwijderen? De vragen die er al uit gemaakt zijn, blijven staan.")) return;
+          await sb.storage.from("fotos").remove([f.pad]);
+          const { error } = await sb.from("onderwerp_fotos").delete().eq("id", f.id);
+          if (error) return toast(fout(error)); toast("Foto verwijderd."); viewOnderwerp(o.id);
+        }},"×")))),
+      h("p",{class:"muted small"},"✅ = gelezen door Gemini · ⏳ = nog niet gelezen. Tik op een foto om hem groot te bekijken. De foto’s blijven bewaard, zodat je later meer vragen kunt laten maken."));
+  })();
+  return blok;
+}
 function beheerOnderwerp(o, vragen, boek, extra){
   const voorstellen = vragen.filter(q => q.status === "voorstel");
   const actief = vragen.filter(q => q.status === "actief");
@@ -1129,7 +1191,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
         : h("button",{class:"btn green",onclick:()=>zetZichtbaar("onderwerpen", o.id, true)},"✅ Vrijgeven voor spelers"),
       h("span",{class:"muted small"}, o.zichtbaar ? "Spelers kunnen deze quiz spelen." : "Spelers zien deze quiz nog niet.")),
     h("p",{class:"muted small"},`${boek} vragen uit het boek en ${extra} vragen buiten het boek staan live (varianten meegeteld). Elke knop hieronder kost één verzoek bij Gemini; je hebt er ongeveer 20 per dag. ‘Andere vraagstelling’ maakt nieuwe versies van de vragen die het vaakst gesteld zijn, zodat spelers de stof leren en niet het antwoord onthouden.`),
-    knoppen, msg, soortenBlok,
+    knoppen, msg, fotoBlok(o), soortenBlok,
     voorstellen.length ? h("div",{class:"stack"},
       h("div",{class:"row"}, h("h3",null,`Te controleren (${voorstellen.length})`),
         h("button",{class:"btn green",style:"margin-left:auto",onclick:()=>{ if (confirm(`Alle ${voorstellen.length} voorstellen goedkeuren?`)) zet(voorstellen.map(q=>q.id),"actief"); }},"Alles goedkeuren")),
