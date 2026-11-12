@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.13";
+const VERSIE = "2026-11-12.14";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -964,7 +964,7 @@ function viewFotos({ vakId, onderwerpId }){
       h("div",{class:"drop",tabindex:"0",role:"button",onclick:()=>kies.click(),onkeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();kies.click();}},
         ondragover:e=>e.preventDefault(),ondrop:e=>{e.preventDefault();voegToe(e.dataTransfer.files);}},
         h("div",{style:"font-size:2.2rem"},"🖼️"), h("strong",null,"Kies foto’s of sleep ze hierheen"),
-        h("div",{class:"muted small"},"Zoveel als je wilt (tot 40 per keer), één bladzijde per foto, recht van boven en met goed licht. Gemini leest ze in porties van 3, en de foto’s worden bij de quiz bewaard.")),
+        h("div",{class:"muted small"},"Zoveel als je wilt (tot 40 per keer), één bladzijde per foto, recht van boven en met goed licht. Gemini leest ze in porties van 2, en de foto’s worden bij de quiz bewaard.")),
       kies, camera,
       h("div",null, h("button",{class:"btn blue",onclick:()=>camera.click()},"📷 Foto maken")),
       thumbs),
@@ -1005,7 +1005,7 @@ async function metControle(owId, gemaakt){
 
 // Leest alle nog niet gelezen foto's van een quiz, 3 per keer, tot ze allemaal klaar zijn
 async function verwerkFotos(owId){
-  const PER = 3; let toegevoegd = 0, fotos = 0, totaal = null, wake = null;
+  const PER = 2; let toegevoegd = 0, fotos = 0, totaal = null, wake = null;
   try { wake = await navigator.wakeLock?.request("screen"); } catch {}
   try {
     for (;;){
@@ -1015,7 +1015,7 @@ async function verwerkFotos(owId){
       if (totaal == null) totaal = open.length;
       const deel = open.slice(0, PER).map(f => f.pad), klaar = Math.max(0, totaal - open.length);
       laden(`Gemini leest foto ${klaar+1}${deel.length > 1 ? "–" + (klaar+deel.length) : ""} van ${totaal}…`,
-        "Per keer 3 foto’s; elk stukje duurt ongeveer een minuut. Houd dit scherm open. Wordt het toch onderbroken, dan ga je later verder waar het gebleven was.");
+        "Per keer 2 foto’s; elk stukje duurt ongeveer een minuut. Houd dit scherm open. Wordt het toch onderbroken, dan ga je later verder waar het gebleven was.");
       let res;
       try { res = await roepFunctie({ actie:"fotos", onderwerp_id: owId, paden: deel }, 170000); }
       catch (e) {
@@ -1035,7 +1035,18 @@ async function roepFunctie(body, wachttijd = 170000){
   let klok;
   const teLang = new Promise((_, nee) => { klok = setTimeout(() => { const e = new Error("Gemini deed er te lang over."); e.teLang = true; nee(e); }, wachttijd); });
   const { data, error } = await Promise.race([sb.functions.invoke("quiz-maken", { body }), teLang]).finally(() => clearTimeout(klok));
-  if (error) throw new Error("De functie quiz-maken gaf een fout: " + fout(error));
+  if (error){
+    // Laat zien wat Supabase precies terugstuurde, in plaats van alleen "non-2xx status code"
+    let status = error.context?.status, tekst = "";
+    try { tekst = (await error.context?.text?.()) || ""; } catch {}
+    const uitleg = status === 546 || status === 504 || /timeout|WORKER_LIMIT|wall clock/i.test(tekst)
+        ? "De functie werd afgebroken omdat hij te lang duurde of te veel rekenkracht gebruikte."
+      : status === 404 ? "De functie quiz-maken is niet gevonden. Controleer of hij in Supabase zo heet en gedeployed is."
+      : status === 401 ? "Je bent niet (meer) goed ingelogd. Log uit en weer in."
+      : status === 500 || status === 503 ? "De functie liep vast. Kijk in Supabase bij Edge Functions > quiz-maken > Logs voor de oorzaak."
+      : "";
+    throw new Error(`De functie quiz-maken gaf fout ${status ?? "?"}. ${uitleg} ${tekst ? "(" + tekst.slice(0,200) + ")" : ""}`.trim());
+  }
   if (!data?.ok) throw new Error(data?.fout || "Onbekende fout van de functie.");
   return data;
 }
@@ -1143,7 +1154,7 @@ function fotoBlok(o){
           try { const res = await verwerkFotos(o.id); S.flash = await metControle(o.id, `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s.`); await laadAlles(); }
           catch (e) { await laadAlles().catch(()=>{}); S.flash = "⚠️ " + fout(e) + " Probeer het straks nog eens; de foto’s blijven bewaard."; }
           viewOnderwerp(o.id);
-        }}, `▶ Lees de ${open.length} resterende foto’s`), h("span",{class:"muted small"},"Gemini leest ze in porties van 3.")) : null,
+        }}, `▶ Lees de ${open.length} resterende foto’s`), h("span",{class:"muted small"},"Gemini leest ze in porties van 2.")) : null,
       h("div",{class:"thumbs"}, fotos.map((f,i) => h("div",{class:"thumb",title: f.verwerkt_op ? "Gelezen" : "Nog niet gelezen"},
         h("a",{href:url.get(f.pad)||"#",target:"_blank",rel:"noopener"}, h("img",{src:url.get(f.pad)||"",alt:`Foto ${i+1}`,loading:"lazy"})),
         h("span",{style:"position:absolute;left:4px;bottom:4px;background:var(--bg);border-radius:6px;padding:1px 6px;font-size:.8rem"}, f.verwerkt_op ? "✅" : "⏳"),
