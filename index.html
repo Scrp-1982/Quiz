@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.7";
+const VERSIE = "2026-11-12.8";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -511,6 +511,33 @@ async function laadAlles(){
 async function leesAal(){
   const { data } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
   S.aal = data?.currentLevel || "aal1";
+  S.aalNodig = data?.nextLevel || "aal1";      // aal2 = dit account heeft tweestapsverificatie ingesteld
+}
+// Wie tweestapsverificatie heeft ingesteld, moet bij het inloggen ook de code invullen
+const moetCode = () => S.user && S.aalNodig === "aal2" && S.aal !== "aal2";
+
+async function viewCodeBijInloggen(){
+  const code = h("input",{type:"text",inputmode:"numeric",autocomplete:"one-time-code",maxlength:"6",placeholder:"123456",id:"lc"});
+  const msg = h("div");
+  const knop = h("button",{class:"btn green big",type:"submit"},"Verder");
+  const form = h("form",{class:"card stack",onsubmit:async e=>{
+    e.preventDefault(); msg.replaceChildren(); knop.disabled = true;
+    const { data } = await sb.auth.mfa.listFactors();
+    const factor = data?.totp?.[0];
+    if (!factor){ knop.disabled = false; return msg.replaceChildren(h("p",{class:"note err"},"Er is geen authenticator gevonden voor dit account.")); }
+    const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: factor.id, code: code.value.trim() });
+    knop.disabled = false;
+    if (error) return msg.replaceChildren(h("p",{class:"note err"},"Die code klopt niet. Gebruik de nieuwste code uit je authenticator-app."));
+    laden("Laden…");
+    try { await leesAal(); await laadAlles(); route(); }
+    catch (err) { render(h("p",{class:"note err"},"Laden mislukt: " + fout(err))); }
+  }},
+    h("h2",null,"🔐 Code invullen"),
+    h("p",null,"Je account is beveiligd met tweestapsverificatie. Vul de code van 6 cijfers in uit je authenticator-app."),
+    h("div",null,h("label",{class:"f",for:"lc"},"Code"),code), msg, knop,
+    h("button",{class:"btn link",type:"button",onclick:async()=>{ await sb.auth.signOut(); }},"Ander account? Uitloggen"));
+  $app.replaceChildren(h("div",{class:"top"}, logo()), h("div",{style:"max-width:440px;margin:0 auto"}, form), h("p",{class:"version muted small"},"Versie " + VERSIE));
+  setTimeout(() => code.focus(), 50);
 }
 const beste = (spelerId, soort, id, diff) => S.rondes.filter(r => r.speler_id === spelerId && r[soort+"_id"] == id && (!diff || r.moeilijkheid == diff)).reduce((m,r)=>Math.max(m,r.score),0);
 
@@ -530,6 +557,7 @@ const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Na
 /* ============ routes ============ */
 async function route(){
   if (!S.user) return viewLogin();
+  if (moetCode()) return viewCodeBijInloggen();
   const [r, id] = location.hash.replace(/^#\/?/,"").split("/");
   if (r !== "spelen" && S.ronde) { S.ronde = null; }
   try {
@@ -633,7 +661,7 @@ async function viewMfa(terug){
   if (e2) return render(h("p",{class:"note err"},fout(e2)));
   render(h("div",{class:"card stack",style:"max-width:520px"},
     h("h2",null,"🔒 Tweestapsverificatie instellen"),
-    h("p",null,"Beheerders loggen in met een extra code, net als bij de F1-poule. Scan deze QR-code met je authenticator-app."),
+    h("p",null,"Scan deze QR-code met een authenticator-app, zoals Google Authenticator of Microsoft Authenticator. Daarna vraagt de app bij elke keer inloggen om de code."),
     h("img",{class:"qr",src:inschr.totp.qr_code,alt:"QR-code voor de authenticator-app"}),
     h("p",{class:"muted small"},"Lukt scannen niet? Voer deze sleutel handmatig in: ", h("span",{class:"code"},inschr.totp.secret)),
     h("div",null,h("label",{class:"f",for:"code"},"Code uit de app"),code), msg,
@@ -1628,8 +1656,30 @@ function viewProfiel(){
         await laadAlles(); toast("Opgeslagen."); viewProfiel();
       }},"Opslaan"),
       h("p",{class:"muted small"},"De beheerder kan je app-naam aanpassen als dat nodig is.")),
-    isBeheerderRol() ? h("p",{class:"muted small"}, isBeheerder() ? "Beheer is ontgrendeld met tweestapsverificatie." : "Je bent beheerder. Ontgrendel Beheer met je authenticator-app.") : null,
+    mfaKaart(),
     h("button",{class:"btn",onclick:async()=>{ await sb.auth.signOut(); }},"Uitloggen")));
+}
+function mfaKaart(){
+  const inhoud = h("div",{class:"stack"}, h("p",{class:"muted"},"Laden…"));
+  sb.auth.mfa.listFactors().then(async ({ data }) => {
+    const factoren = data?.totp || [];
+    if (!factoren.length){
+      inhoud.replaceChildren(
+        h("p",null,"Staat ", h("strong",null,"uit"), ". Met tweestapsverificatie vul je bij het inloggen naast je wachtwoord ook een code in uit een app zoals Google Authenticator. Dan kan niemand anders inloggen, ook niet als hij je wachtwoord weet."),
+        echtBeheerder() ? h("p",{class:"note warn"},"Voor beheerders is dit verplicht om Beheer te kunnen gebruiken.") : null,
+        h("div",null,h("button",{class:"btn green",onclick:()=>viewMfa("#profiel")},"🔐 Instellen")));
+    } else {
+      inhoud.replaceChildren(
+        h("p",null,"Staat ", h("strong",{style:"color:var(--good)"},"aan"), ". Bij het inloggen vul je naast je wachtwoord een code in uit je authenticator-app."),
+        echtBeheerder() ? h("p",{class:"muted small"},"Verplicht voor beheerders, dus uitzetten kan hier niet.")
+        : h("div",null,h("button",{class:"btn",onclick:async()=>{
+            if (!confirm("Tweestapsverificatie uitzetten? Daarna log je weer alleen met je wachtwoord in.")) return;
+            for (const f of factoren){ const { error } = await sb.auth.mfa.unenroll({ factorId: f.id }); if (error) return toast(fout(error)); }
+            await sb.auth.refreshSession(); await leesAal(); toast("Tweestapsverificatie staat uit."); viewProfiel();
+          }},"Uitzetten")));
+    }
+  });
+  return h("div",{class:"card stack"}, h("h3",null,"🔐 Tweestapsverificatie"), inhoud);
 }
 // Vierkante profielfoto van 320×320 (midden van de foto)
 async function vierkanteFoto(file){
@@ -1919,7 +1969,7 @@ async function sessie(session){
   S.user = session?.user || null;
   if (!S.user){ S.profiel = null; return route(); }
   laden("Laden…");
-  try { await leesAal(); await laadAlles(); route(); }
+  try { await leesAal(); if (moetCode()) return viewCodeBijInloggen(); await laadAlles(); route(); }
   catch (e) { render(h("p",{class:"note err"},"Laden mislukt: " + fout(e)), h("button",{class:"btn",onclick:()=>location.reload()},"Opnieuw proberen")); }
 }
 let vorigeGebruiker;
