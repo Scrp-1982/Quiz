@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.8";
+const VERSIE = "2026-11-12.9";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -1810,6 +1810,14 @@ function pauzeKaart(){
 async function beheerGebruikers(){
   const { data: uitnodigingen } = await sb.from("uitnodigingen").select("*").order("aangemaakt",{ascending:false});
   const open = (uitnodigingen||[]).filter(u => !u.gebruikt_op);
+  const { data: mfaLijst } = await sb.rpc("spelers_met_mfa");
+  const metMfa = new Set((mfaLijst || []).map(x => typeof x === "string" ? x : Object.values(x)[0]));
+  const mfaUit = async p => {
+    if (!confirm(`Tweestapsverificatie van ${p.naam} uitzetten? Gebruik dit als ${p.naam} zijn telefoon kwijt is. Daarna logt ${p.naam} in met alleen het wachtwoord en kan het opnieuw instellen.`)) return;
+    const { error } = await sb.rpc("beheer_mfa_uitzetten", { doel: p.id });
+    if (error) return toast(/function|schema cache/i.test(error.message) ? "Voer eerst SQL-script 10 uit in Supabase." : fout(error));
+    toast(`Tweestapsverificatie van ${p.naam} staat uit.`); viewBeheer("gebruikers");
+  };
   const invEmail = h("input",{type:"email",id:"ie",placeholder:"naam@voorbeeld.nl"});
   const invNaam = h("input",{type:"text",id:"in",maxlength:"36",placeholder:"bijv. Daan"});
   const invMsg = h("div");
@@ -1833,15 +1841,17 @@ async function beheerGebruikers(){
       h("table",null,
         h("thead",null,h("tr",null,h("th",null,"App-naam"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Deze week"),h("th",{class:"num"},"Goed"),h("th",{class:"num"},"Punten"),h("th",null,"Laatst"),h("th",null,""))),
         h("tbody",null, rijen.map(x => h("tr",null,
-          h("td",null, spelerNaam(x.p), x.p.rol === "beheerder" ? h("span",{class:"tag",style:"margin-left:8px"},"beheerder") : null),
+          h("td",null, spelerNaam(x.p), x.p.rol === "beheerder" ? h("span",{class:"tag",style:"margin-left:8px"},"beheerder") : null,
+            metMfa.has(x.p.id) ? h("span",{class:"tag",style:"margin-left:6px;background:var(--good);border-color:var(--good);color:#04160A",title:"Tweestapsverificatie staat aan"},"🔒") : null),
           h("td",{class:"num"},x.n), h("td",{class:"num"},x.week), h("td",{class:"num"},x.pct),
           h("td",{class:"num"}, x.p.rol === "beheerder" ? "–" : (() => { const st = puntenStand(x.p.id); return h("span",{title: st.verloren ? `${nl(st.verloren)} punten kwijt door niet spelen` : null}, nl(st.punten), st.sinds > VERVAL.gratisDagen && !st.nuPauze && !st.opBodem ? " 📉" : ""); })()),
           h("td",{class:"small muted"}, x.laatst ? datum(x.laatst) : "nog nooit"),
           h("td",{class:"num"},
             h("button",{class:"btn link",onclick:()=>go("#overzicht/"+x.p.id)},"Details"),
             h("button",{class:"btn link",onclick:()=>wijzigNaam(x.p)},"Naam"),
-            x.p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${x.p.naam} verwijderen?`)) verwijderFoto(x.p); }},"Foto weg") : null))))),
-      h("p",{class:"muted small"},"Details: per quiz hoe het ging, welke vragen vaak fout gaan en welke vaak terugkomen.")),
+            x.p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${x.p.naam} verwijderen?`)) verwijderFoto(x.p); }},"Foto weg") : null,
+            metMfa.has(x.p.id) && x.p.id !== S.user.id ? h("button",{class:"btn link",onclick:()=>mfaUit(x.p)},"Tweestap uit") : null))))),
+      h("p",{class:"muted small"},"Details: per quiz hoe het ging, welke vragen vaak fout gaan en welke vaak terugkomen. 🔒 = tweestapsverificatie staat aan; met ‘Tweestap uit’ zet je die uit als iemand zijn telefoon kwijt is.")),
     h("div",{class:"card stack"},
       h("h3",null,"✉️ Speler uitnodigen"),
       h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
