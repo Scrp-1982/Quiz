@@ -6,10 +6,10 @@
 <title>Quizmaster</title>
 <meta name="description" content="Oefen je lesstof met quizzen en pak de highscore.">
 <meta name="theme-color" content="#0D111B">
-<link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/svg+xml" href="logo.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json?v=2">
+<link rel="icon" type="image/svg+xml" href="logo.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Quizmaster">
@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.4";
+const VERSIE = "2026-11-12.6";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -525,7 +525,7 @@ function header(){
         isBeheerderRol() ? h("button",{class:"btn",onclick:()=>go("#beheer")}, isBeheerder() ? "⚙️ Beheer" : "🔒 Beheer") : null,
         h("button",{class:"btn",onclick:()=>go("#profiel"),"aria-label":"Mijn profiel"}, spelerNaam(S.profiel, 26))));
 }
-const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Naar beginscherm"}, h("img",{src:"logo.svg",alt:""}), h("span",null,"Quizmaster"));
+const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Naar beginscherm"}, h("img",{src:"logo.svg?v=2",alt:""}), h("span",null,"Quizmaster"));
 
 /* ============ routes ============ */
 async function route(){
@@ -880,7 +880,7 @@ function viewFotos({ vakId, onderwerpId }){
   const camera = h("input",{type:"file",accept:"image/*",capture:"environment",hidden:true,onchange:e=>{voegToe(e.target.files);e.target.value="";}});
   function voegToe(lijst){
     for (const f of lijst){ if (!f.type.startsWith("image/")) continue;
-      if (files.length >= 10){ msg.replaceChildren(h("p",{class:"note warn"},"Maximaal 10 foto’s per keer. Voeg de rest daarna toe met ‘Foto’s toevoegen’.")); break; }
+      if (files.length >= 10){ msg.replaceChildren(h("p",{class:"note warn"},"Maximaal 10 foto’s per keer. Voeg de rest daarna toe met ‘Meer pagina’s toevoegen’.")); break; }
       files.push(f); }
     teken();
   }
@@ -918,12 +918,13 @@ function viewFotos({ vakId, onderwerpId }){
       go("#onderwerp/" + ow.id);
     } catch (e) {
       await laadAlles().catch(()=>{});
-      if (ow && !bestaand) { S.flash = "⚠️ " + fout(e) + " Je kunt het opnieuw proberen met ‘Foto’s toevoegen’."; go("#onderwerp/" + ow.id); }
+      if (ow && !bestaand) { S.flash = "⚠️ " + fout(e) + " Je kunt het opnieuw proberen met ‘Meer pagina’s toevoegen’."; go("#onderwerp/" + ow.id); }
       else { msg.replaceChildren(h("p",{class:"note err"},fout(e))); }
     }
   }
   render(h("div",{class:"stack",style:"max-width:720px"},
-    h("h2",null, bestaand ? `Foto’s toevoegen aan “${bestaand.titel}”` : "🧩 Nieuwe quiz"),
+    h("h2",null, bestaand ? `📸 Meer pagina’s voor “${bestaand.titel}”` : "🧩 Nieuwe quiz"),
+    bestaand ? h("p",{class:"muted"},"Gemini leest de nieuwe bladzijden, voegt de stof toe aan wat er al was en maakt er nieuwe vragen bij. Vragen die al bestaan, maakt hij niet nog een keer.") : null,
     bestaand ? null : h("div",{class:"card stack"},
       h("div",null,h("label",{class:"f",for:"ov"},"1. Vak"),vakKeuze),
       h("div",null,h("label",{class:"f",for:"ot"},"2. Titel van de quiz"),titel)),
@@ -1058,7 +1059,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
     await laadAlles(); viewOnderwerp(o.id);
   }
   const knoppen = h("div",{class:"row"},
-    h("button",{class:"btn",onclick:()=>go("#fotos/"+o.id)},"📸 Foto’s toevoegen"),
+    h("button",{class:"btn green",onclick:()=>go("#fotos/"+o.id)},"📸 Meer pagina’s toevoegen"),
     voorstellen.length ? h("button",{class:"btn blue",onclick:()=>startRonde("onderwerp", o.id, { voorstellen:true })},`🧪 Test de ${voorstellen.length} voorstellen`) : null,
     h("button",{class:"btn",onclick:()=>maak("meer","Gemini maakt nieuwe vragen uit de lesstof…")},"✨ Meer vragen uit het boek"),
     h("button",{class:"btn purple",onclick:()=>maak("extra","Gemini maakt vragen buiten het boek…")},"🌐 Vragen buiten het boek"),
@@ -1684,6 +1685,7 @@ async function beheerQuizzen(){
             h("div",{class:"info"}, h("strong",null,o.titel),
               h("div",{class:"muted small"}, `${n.actief} vragen live`, n.voorstel ? h("span",{class:"tag prop",style:"margin-left:8px"},`${n.voorstel} te controleren`) : null)),
             h("div",{class:"acties"}, status(o.zichtbaar), wissel("onderwerpen", o),
+              h("button",{class:"btn link",onclick:()=>go("#fotos/"+o.id)},"+ Pagina’s"),
               h("button",{class:"btn",onclick:()=>go("#onderwerp/"+o.id)}, n.voorstel ? "Controleren" : "Openen"))); }))
       : h("p",{class:"muted small",style:"margin-top:8px"},"Nog geen quizzen in dit vak."));
   });
