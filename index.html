@@ -164,6 +164,9 @@ summary{cursor:pointer;font-weight:600}
 .spelerbalk{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;
   background:var(--cyan);color:#04161A;padding:8px 14px;border-radius:10px;margin-bottom:14px;font-weight:600}
 .spelerbalk .btn{min-height:38px;padding:4px 12px;font-size:.95rem;background:#04161A;color:#fff;box-shadow:none}
+.beoordeel{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;background:#0F1420}
+.beoordeel .btn{min-height:34px;padding:3px 10px;font-size:.9rem}
+.beoordeel .btn[aria-pressed="true"]{background:var(--hot);color:#160A02;box-shadow:none}
 .adminstrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .adminstrip button{text-align:left;border:0;clip-path:var(--cut);background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);padding:14px;cursor:pointer;color:var(--text)}
 .adminstrip b{display:block;font-family:var(--display);font-size:1.8rem;line-height:1}
@@ -257,7 +260,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.1";
+const VERSIE = "2026-11-12.2";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -944,6 +947,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
   }
   const knoppen = h("div",{class:"row"},
     h("button",{class:"btn",onclick:()=>go("#fotos/"+o.id)},"📸 Foto’s toevoegen"),
+    voorstellen.length ? h("button",{class:"btn blue",onclick:()=>startRonde("onderwerp", o.id, { voorstellen:true })},`🧪 Test de ${voorstellen.length} voorstellen`) : null,
     h("button",{class:"btn",onclick:()=>maak("meer","Gemini maakt nieuwe vragen uit de lesstof…")},"✨ Meer vragen uit het boek"),
     h("button",{class:"btn purple",onclick:()=>maak("extra","Gemini maakt vragen buiten het boek…")},"🌐 Vragen buiten het boek"),
     h("button",{class:"btn",onclick:()=>maak("varianten","Gemini bedenkt een andere vraagstelling voor de vragen die het vaakst gesteld zijn…")},"🔄 Andere vraagstelling"));
@@ -1098,14 +1102,24 @@ function viewToetsForm({ vakId, toetsId }){
 const TIMER = { raf:0 };
 function stopTimer(){ cancelAnimationFrame(TIMER.raf); TIMER.raf = 0; }
 
-async function startRonde(soort, id){
+async function startRonde(soort, id, opties = {}){
   laden("Quiz klaarzetten…");
+  const alleenVoorstellen = !!opties.voorstellen && echtBeheerder();
   const d = gekozenDiff;
   const owIds = soort === "toets" ? toetsOnderwerpen(id) : [Number(id)];
   const titel = soort === "toets" ? toets(id)?.titel : onderwerp(id)?.titel;
   const nDoel = soort === "toets" ? TOETS_N[d] : DIFF[d].n;
-  const { data: vragen, error } = await sb.from("vragen").select("id, onderwerp_id, type, vraag, opties, juist, uitleg, bron, emoji, moeilijkheid, soort, variant_van").in("onderwerp_id", owIds).eq("status","actief");
+  const { data: vragen, error } = await sb.from("vragen").select("id, onderwerp_id, type, vraag, opties, juist, uitleg, bron, emoji, moeilijkheid, soort, variant_van").in("onderwerp_id", owIds).eq("status", alleenVoorstellen ? "voorstel" : "actief");
   if (error) return render(h("p",{class:"note err"},fout(error)));
+  if (alleenVoorstellen){
+    // proefronde met de nog niet goedgekeurde vragen: maximaal 20, door elkaar
+    if (!vragen.length) return render(h("p",{class:"note warn"},"Er zijn geen voorstellen om te testen."));
+    S.ronde = { soort, id:Number(id), titel:onderwerp(id)?.titel, taal: vak(onderwerp(id)?.vak_id)?.taal || null, d, metTijd, vgMap:new Map(), i:0, score:0, reeks:0, langste:0, goed:0, antwoorden:[], voorstellen:true,
+      lijst: shuffle(vragen).slice(0,20).map(q => ({ q, opts: shuffle(q.opties.map((t,i)=>({t, ok:i===q.juist}))) })) };
+    S.terug = `#${soort}/${id}`;
+    if (location.hash !== "#spelen") location.hash = "#spelen";
+    return toonVraag();
+  }
   const ids = vragen.map(q => q.id);
   const { data: vg } = ids.length ? await sb.from("voortgang").select("vraag_id, keer_gezien, laatst_fout").eq("speler_id", S.user.id).in("vraag_id", ids) : { data:[] };
   const vgMap = new Map((vg||[]).map(x => [x.vraag_id, x]));
@@ -1162,7 +1176,7 @@ function toonVraag(){
       const bonus = r.metTijd ? Math.round(50 * Math.max(0, 1 - ms/(tijd*1000))) : 0;
       punten = Math.round((100 + bonus) * reeksMult * cfg.mult * factor); r.score += punten;
     } else r.reeks = 0;
-    const basis = { v:q.id, w:q.onderwerp_id, q:q.vraag, e:q.emoji, ok, u:q.uitleg, b:q.bron, s:q.soort, p:punten };
+    const basis = { v:q.id, w:q.onderwerp_id, q:q.vraag, e:q.emoji, ok, u:q.uitleg, b:q.bron, s:q.soort, p:punten, m:q.moeilijkheid };
     r.antwoorden.push(mc ? { ...basis, o:mc.o, c:mc.c, r:mc.r } : { ...basis, t:type, o:[], c: teLaat ? -1 : 0, r:0, in:gegeven, g:juistTekst });
     const ookGoed = type === "typen" && q.opties.length > 1 ? q.opties.slice(1).join(" · ") : null;
     fb.className = "fb card " + (ok ? "ok" : "no");
@@ -1311,7 +1325,7 @@ async function klaar(){
   const sterren = deel >= .9 ? 3 : deel >= .7 ? 2 : deel >= .4 ? 1 : 0;
   render(h("div",{class:"stack"},
     error ? h("p",{class:"note err"},"Je score kon niet worden opgeslagen: " + fout(error)) : null,
-    proef ? h("p",{class:"note"},"🧪 Proefronde als beheerder: deze score is niet opgeslagen en staat niet op het scorebord.") : null,
+    proef ? h("p",{class:"note"}, r.voorstellen ? "🧪 Proefronde met de voorstellen: niets is opgeslagen. Spelers zien deze vragen pas als je ze goedkeurt." : "🧪 Proefronde als beheerder: deze score is niet opgeslagen en staat niet op het scorebord.") : null,
     h("div",{class:"card result stack"},
       record ? h("div",null,h("span",{class:"record"},"🏆 Nieuw record!")) : null,
       h("div",{class:"score"},nl(r.score)), h("div",{class:"muted"},`punten op ${DIFF[r.d].naam}`),
@@ -1319,12 +1333,34 @@ async function klaar(){
       h("p",null,`${r.goed} van de ${r.lijst.length} goed · langste reeks: ${r.langste}`),
       !proef && !record && oudRecord ? h("p",{class:"muted"},`Je record is ${nl(oudRecord)}. ${oudRecord - r.score <= 300 ? "Bijna!" : "Probeer het nog eens!"}`) : null,
       h("div",{class:"row",style:"justify-content:center"},
-        h("button",{class:"btn green big",onclick:()=>startRonde(r.soort, r.id)},"🔁 Nog een keer"),
+        h("button",{class:"btn green big",onclick:()=>startRonde(r.soort, r.id, { voorstellen:r.voorstellen })},"🔁 Nog een keer"),
         h("button",{class:"btn",onclick:()=>go(S.terug)},"Terug"))),
-    h("div",{class:"card"}, h("h3",null,"Zo ging het"), reviewLijst(r.antwoorden))));
+    h("div",{class:"card"}, h("h3",null,"Zo ging het"),
+      proef && S.aal === "aal2" ? h("p",{class:"muted small"},"Beoordeel per vraag de moeilijkheid, keur voorstellen goed of verwijder vragen die niet duidelijk zijn. Dit zien spelers niet.") : null,
+      reviewLijst(r.antwoorden, { beoordelen: proef && S.aal === "aal2", voorstellen: r.voorstellen }))));
   if (record) confetti();
 }
-function reviewLijst(antw){
+// Beheerderstools onder een vraag in de terugblik van een proefronde
+function beoordeelBalk(a, voorstel){
+  const balk = h("div",{class:"beoordeel"});
+  let m = a.m || 2, status = voorstel ? "voorstel" : "actief", weg = false;
+  const zet = async (velden, melding) => {
+    const { error } = await sb.from("vragen").update(velden).eq("id", a.v);
+    if (error) return toast(fout(error));
+    Object.assign(a, velden.moeilijkheid ? { m: velden.moeilijkheid } : {}); toast(melding); teken();
+  };
+  function teken(){
+    if (weg) return balk.replaceChildren(h("span",{class:"muted small"},"🗑️ Vraag verwijderd"));
+    balk.replaceChildren(
+      h("span",{class:"small muted"},"Moeilijkheid:"),
+      ...[1,2,3].map(n => h("button",{class:"btn","aria-pressed":String(m===n),title:DIFF[n].naam,onclick:()=>{ m = n; zet({ moeilijkheid:n }, `Moeilijkheid: ${DIFF[n].naam}`); }}, "⭐".repeat(n))),
+      status === "voorstel" ? h("button",{class:"btn green",onclick:()=>{ status = "actief"; zet({ status:"actief" }, "Goedgekeurd."); }},"Goedkeuren") : h("span",{class:"tag",style:"background:var(--good);border-color:var(--good);color:#04160A"},"Live"),
+      h("button",{class:"btn link",onclick:async()=>{ if (!confirm("Deze vraag verwijderen?")) return;
+        const { error } = await sb.from("vragen").delete().eq("id", a.v); if (error) return toast(fout(error)); weg = true; toast("Vraag verwijderd."); teken(); }},"Verwijderen"));
+  }
+  teken(); return balk;
+}
+function reviewLijst(antw, { beoordelen = false, voorstellen = false } = {}){
   const fout = antw.filter(a=>!a.ok).length;
   return h("div",null,
     h("p",{class:"muted small"}, fout ? `${fout} ${fout===1?"vraag":"vragen"} fout. Lees de uitleg nog even goed door.` : "Alles goed. Knap gedaan!"),
@@ -1337,7 +1373,8 @@ function reviewLijst(antw){
       : a.ok ? h("div",null,"Jouw antwoord: ", h("strong",null,a.o[a.r]), ` (+${nl(a.p)})`)
            : h("div",null, a.c < 0 ? "Je was te laat. " : h("span",null,"Jouw antwoord: ", h("s",null,a.o[a.c]), " · "), "Goed was: ", h("strong",null,a.o[a.r])),
       a.u ? h("div",{class:"small",style:"margin-top:4px"},a.u) : null,
-      a.b ? h("div",{class:"src small"},(a.s==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + a.b + "”") : null)));
+      a.b ? h("div",{class:"src small"},(a.s==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + a.b + "”") : null,
+      beoordelen ? beoordeelBalk(a, voorstellen) : null)));
 }
 
 /* ============ ronde terugkijken ============ */
