@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.15";
+const VERSIE = "2026-11-12.17";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -829,9 +829,9 @@ async function viewVakForm(id){
 
 // Maakt van een zwart-wit plaatje een wit icoon op een doorzichtige achtergrond (langste zijde 384, verhouding blijft)
 async function maakIcoon(file){
-  let bmp; try { bmp = await createImageBitmap(file); } catch { throw new Error("Dit plaatje kon niet worden gelezen. Gebruik png of jpg."); }
+  let bmp; try { bmp = await laadBeeld(file); } catch { throw new Error("Dit plaatje kon niet worden gelezen. Gebruik png of jpg."); }
   const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
-  const x = c.getContext("2d", { willReadFrequently:true }); x.drawImage(bmp,0,0);
+  const x = c.getContext("2d", { willReadFrequently:true }); x.drawImage(bmp.bron,0,0);
   const img = x.getImageData(0,0,c.width,c.height), d = img.data;
   // Is het plaatje al (deels) doorzichtig? Dan bepaalt de doorzichtigheid de vorm, welke kleur het ook heeft.
   let doorzichtig = 0; for (let i=3;i<d.length;i+=4) if (d[i] < 250) doorzichtig++;
@@ -919,7 +919,7 @@ function viewFotos({ vakId, onderwerpId }){
     thumbs.replaceChildren(...files.map((f,i) => h("div",{class:"thumb"}, h("img",{src:URL.createObjectURL(f),alt:`Foto ${i+1}`}),
       h("button",{"aria-label":`Foto ${i+1} weghalen`,onclick:()=>{files.splice(i,1);teken();}},"×"))));
   }
-  async function start(){
+  async function start(alleenOpslaan = false){
     msg.replaceChildren();
     if (!bestaand && !v) return msg.replaceChildren(h("p",{class:"note err"},"Kies een vak."));
     if (!bestaand && !titel.value.trim()) return msg.replaceChildren(h("p",{class:"note err"},"Vul een titel in."));
@@ -941,6 +941,11 @@ function viewFotos({ vakId, onderwerpId }){
         const { error: e2 } = await sb.from("onderwerp_fotos").insert({ onderwerp_id: ow.id, pad });
         if (e2) throw e2;
         paden.push(pad);
+      }
+      if (alleenOpslaan){
+        await laadAlles();
+        S.flash = `📥 ${paden.length} foto’s opgeslagen bij deze quiz. Klik bij 📷 Foto’s op ‘▶ Lees de resterende foto’s’ als je ze wilt laten verwerken.`;
+        return go("#onderwerp/" + ow.id);
       }
       const res = await verwerkFotos(ow.id);
       const tekst = await metControle(ow.id, `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s.`);
@@ -974,14 +979,31 @@ function viewFotos({ vakId, onderwerpId }){
         h("div",null,h("span",{style:"font-weight:600;display:block;margin-bottom:6px"},"Soorten vragen"),soortHouder),
         h("div",null,h("label",{class:"f",for:"oa"},"Waar moet de quiz op letten?"),notities))),
     msg,
-    h("div",{class:"row"}, h("button",{class:"btn green big",onclick:start},"✨ Maak de quiz"), h("button",{class:"btn link",onclick:()=>history.back()},"Annuleren"))));
+    h("div",{class:"row"},
+      h("button",{class:"btn green big",onclick:()=>start(false)}, bestaand ? "✨ Opslaan en meteen lezen" : "✨ Maak de quiz"),
+      h("button",{class:"btn big",onclick:()=>start(true)},"📥 Alleen foto’s opslaan"),
+      h("button",{class:"btn link",onclick:()=>history.back()},"Annuleren")),
+    h("p",{class:"muted small"},"‘Alleen foto’s opslaan’ bewaart de foto’s zonder Gemini, bijvoorbeeld als Gemini druk is of de daglimiet bereikt is. Later laat je ze lezen met ‘▶ Lees de resterende foto’s’ bij 📷 Foto’s van de quiz.")));
+}
+// Laadt een foto rechtop. Een telefoon slaat foto's vaak "liggend" op, met in de foto een notitie
+// hoe hij gedraaid moet worden (EXIF). Een <img> houdt daar rekening mee; createImageBitmap niet altijd.
+async function laadBeeld(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image(); img.decoding = "async"; img.src = url;
+    await img.decode();
+    return { width: img.naturalWidth, height: img.naturalHeight, bron: img, _img: img };
+  } catch {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    return { width: bmp.width, height: bmp.height, bron: bmp };
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 5000); }
 }
 async function verklein(file){
   try {
-    const bmp = await createImageBitmap(file);
+    const bmp = await laadBeeld(file);
     const s = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
     const c = document.createElement("canvas"); c.width = Math.round(bmp.width*s); c.height = Math.round(bmp.height*s);
-    c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+    c.getContext("2d").drawImage(bmp.bron,0,0,c.width,c.height);
     return await new Promise((ok,nok) => c.toBlob(b => b ? ok(b) : nok(new Error("Foto verkleinen mislukt")), "image/jpeg", 0.85));
   } catch { throw new Error("Deze foto kon niet worden gelezen. Gebruik jpg of png."); }
 }
@@ -1873,9 +1895,9 @@ function mfaKaart(){
 }
 // Vierkante profielfoto van 320×320 (midden van de foto)
 async function vierkanteFoto(file){
-  let bmp; try { bmp = await createImageBitmap(file); } catch { throw new Error("Deze foto kon niet worden gelezen. Gebruik jpg of png."); }
+  let bmp; try { bmp = await laadBeeld(file); } catch { throw new Error("Deze foto kon niet worden gelezen. Gebruik jpg of png."); }
   const z = Math.min(bmp.width, bmp.height), c = document.createElement("canvas"); c.width = c.height = 320;
-  c.getContext("2d").drawImage(bmp, (bmp.width-z)/2, (bmp.height-z)/2, z, z, 0, 0, 320, 320);
+  c.getContext("2d").drawImage(bmp.bron, (bmp.width-z)/2, (bmp.height-z)/2, z, z, 0, 0, 320, 320);
   return await new Promise((ok,nok) => c.toBlob(b => b ? ok(b) : nok(new Error("Foto omzetten mislukt")), "image/jpeg", 0.85));
 }
 
