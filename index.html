@@ -167,6 +167,15 @@ summary{cursor:pointer;font-weight:600}
 .beoordeel{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;background:#0F1420}
 .beoordeel .btn{min-height:34px;padding:3px 10px;font-size:.9rem}
 .beoordeel .btn[aria-pressed="true"]{background:var(--hot);color:#160A02;box-shadow:none}
+.mijlpalen{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.mp .medailles .muted{letter-spacing:0}
+.mp{background:#0F1420;border:2px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.mp .kop{display:flex;align-items:center;gap:8px;font-weight:600}
+.mp .kop .ic{font-size:1.5rem}
+.mp .medailles{font-size:1.15rem;letter-spacing:2px;min-height:1.4em}
+.mp .xp{height:9px;min-width:0}
+.mp.nul{opacity:.65}
+.nieuw{border:2px solid var(--orange);background:rgba(245,158,11,.1);border-radius:10px;padding:10px 14px;text-align:left}
 .adminstrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .adminstrip button{text-align:left;border:0;clip-path:var(--cut);background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);padding:14px;cursor:pointer;color:var(--text)}
 .adminstrip b{display:block;font-family:var(--display);font-size:1.8rem;line-height:1}
@@ -260,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.2";
+const VERSIE = "2026-11-12.4";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -287,17 +296,109 @@ const DIFF = {
   3: { naam:"Moeilijk",  sterren:"⭐⭐⭐", n:12, tijd:15, mult:2,   uitleg:"Lastige vragen plus vragen buiten het boek. 2× punten." },
 };
 
-const RANGEN = [[0,"🥚 Beginner"],[2000,"🔰 Rookie"],[6000,"⚔️ Strijder"],[15000,"🛡️ Pro"],[30000,"🔥 Expert"],[60000,"💎 Master"],[100000,"👑 Legend"]];
-function rang(punten){
-  let i = 0; while (i+1 < RANGEN.length && punten >= RANGEN[i+1][0]) i++;
-  const [van, naam] = RANGEN[i], volgende = RANGEN[i+1];
-  return { naam, volgende: volgende?.[1], nodig: volgende ? volgende[0] - punten : 0, deel: volgende ? (punten - van) / (volgende[0] - van) : 1 };
+// Levels: elk level kost meer punten (level L begint bij 400·(L−1)² punten). Zo blijft er jarenlang iets te halen.
+const TITELS = [[1,"🥚 Beginner"],[3,"🔰 Rookie"],[6,"📗 Leerling"],[10,"⚔️ Strijder"],[15,"🛡️ Kenner"],[20,"🎯 Pro"],[27,"🔥 Expert"],
+  [35,"🧠 Meester"],[45,"💎 Grootmeester"],[55,"🏆 Kampioen"],[70,"🚀 Legende"],[85,"🌌 Mythisch"],[99,"👑 Quizmaster"]];
+const levelStart = L => 400 * (L-1) * (L-1);
+function level(punten){
+  let L = Math.max(1, Math.floor(Math.sqrt(punten / 400)) + 1);
+  while (levelStart(L+1) <= punten) L++; while (L > 1 && levelStart(L) > punten) L--;
+  const titel = [...TITELS].reverse().find(t => L >= t[0])[1];
+  const volgendeTitel = TITELS.find(t => t[0] > L);
+  return { L, titel, deel:(punten - levelStart(L)) / (levelStart(L+1) - levelStart(L)), nodig: levelStart(L+1) - punten, volgendeTitel };
 }
 function rangBalk(punten){
-  const r = rang(punten);
-  return h("div",{class:"rank"}, h("span",{class:"badge"},r.naam),
-    h("div",{class:"xp",role:"img","aria-label":`Voortgang naar volgende rang: ${Math.round(r.deel*100)}%`}, h("i",{style:`width:${Math.round(r.deel*100)}%`})),
-    h("span",{class:"muted small"}, r.volgende ? `${nl(punten)} punten · nog ${nl(r.nodig)} tot ${r.volgende}` : `${nl(punten)} punten · hoogste rang!`));
+  const l = level(punten);
+  return h("div",{class:"rank"}, h("span",{class:"badge"},`Lv ${l.L} · ${l.titel}`),
+    h("div",{class:"xp",role:"img","aria-label":`Voortgang naar level ${l.L+1}: ${Math.round(l.deel*100)}%`}, h("i",{style:`width:${Math.round(l.deel*100)}%`})),
+    h("span",{class:"muted small"}, `${nl(punten)} punten · nog ${nl(l.nodig)} tot level ${l.L+1}` + (l.volgendeTitel ? ` · ${l.volgendeTitel[1]} op level ${l.volgendeTitel[0]}` : "")));
+}
+
+// ---- Puntenverlies bij lang niet spelen ----
+// De eerste 7 dagen zonder spelen kosten niets. Daarna gaat er elke dag 10% van de gemiddelde
+// ronde-score af, maar nooit meer dan 25% van alle verdiende punten. Pauzedagen tellen niet mee.
+const VERVAL = { gratisDagen:7, perDag:0.10, maxVerlies:0.25 };
+const dagNr = d => { const x = new Date(d); return Math.floor(new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime() / 864e5 + 0.5); };
+const datumVanDagNr = n => new Date(n * 864e5);
+function isPauzeDag(n){
+  return S.pauzes.some(p => n >= dagNr(p.van + "T12:00:00") && (!p.tot || n <= dagNr(p.tot + "T12:00:00")));
+}
+function telInactieveDagen(vanaf, tot){       // dagen ná 'vanaf' tot en met 'tot', zonder pauzedagen
+  let n = 0; for (let d = vanaf + 1; d <= tot; d++) if (!isPauzeDag(d)) n++; return n;
+}
+function puntenStand(spelerId, rondesLijst){
+  const rondes = (rondesLijst || S.rondes.filter(r => r.speler_id === spelerId)).slice().sort((a,b) => new Date(a.gespeeld_op) - new Date(b.gespeeld_op));
+  let punten = 0, verdiend = 0, verloren = 0, vorige = null; const scores = [];
+  const verval = (tot) => {
+    if (vorige == null) return;
+    const dagen = telInactieveDagen(vorige, tot) - VERVAL.gratisDagen;
+    if (dagen <= 0) return;
+    const recent = scores.slice(-20), gem = recent.reduce((t,x)=>t+x,0) / recent.length;
+    const bodem = Math.round(verdiend * (1 - VERVAL.maxVerlies));
+    const af = Math.min(Math.round(gem * VERVAL.perDag) * dagen, Math.max(0, punten - bodem));
+    punten -= af; verloren += af;
+  };
+  for (const r of rondes){ const d = dagNr(r.gespeeld_op); verval(d - 1); punten += r.score; verdiend += r.score; scores.push(r.score); vorige = d; }
+  const vandaag = dagNr(Date.now());
+  verval(vandaag);
+  const sinds = vorige == null ? null : telInactieveDagen(vorige, vandaag);
+  const recent = scores.slice(-20);
+  return { punten, verdiend, verloren, sinds, nuPauze: isPauzeDag(vandaag),
+    perDag: recent.length ? Math.round(recent.reduce((t,x)=>t+x,0) / recent.length * VERVAL.perDag) : 0,
+    opBodem: verdiend > 0 && punten <= Math.round(verdiend * (1 - VERVAL.maxVerlies)) };
+}
+function vervalMelding(st){
+  if (st.sinds == null) return null;
+  const pauze = S.pauzes.find(p => isPauzeDag(dagNr(Date.now())));
+  if (pauze) return h("p",{class:"note"},`⏸️ Pauze${pauze.reden ? " (" + pauze.reden + ")" : ""}: je punten staan stil` + (pauze.tot ? ` tot en met ${new Date(pauze.tot+"T12:00:00").toLocaleDateString("nl-NL",{day:"numeric",month:"long"})}.` : "."));
+  if (st.sinds > VERVAL.gratisDagen && !st.opBodem) return h("p",{class:"note err"},`📉 Je hebt ${st.sinds} dagen niet gespeeld en verliest nu elke dag ${nl(st.perDag)} punten. Speel een quiz om dat te stoppen!`);
+  if (st.sinds > VERVAL.gratisDagen) return h("p",{class:"note warn"},`📉 Je hebt ${st.sinds} dagen niet gespeeld. Speel een quiz om weer punten te verdienen!`);
+  if (st.sinds >= 4) { const over = VERVAL.gratisDagen - st.sinds + 1;
+    return h("p",{class:"note warn"}, over <= 1 ? `⏳ Je hebt ${st.sinds} dagen niet gespeeld. Morgen gaan er punten af!` : `⏳ Je hebt ${st.sinds} dagen niet gespeeld. Over ${over} dagen gaan er punten af.`); }
+  return null;
+}
+
+// Mijlpalen: elke mijlpaal heeft oplopende stappen, met een medaille per stap
+const MEDAILLES = ["🥉","🥈","🥇","💠","💎","👑","🌟","🚀"];
+const MIJLPALEN = [
+  { id:"rondes",   ic:"🎮", naam:"Quizzen gespeeld",        stappen:[1,10,25,50,100,250,500,1000] },
+  { id:"goed",     ic:"✅", naam:"Vragen goed beantwoord",  stappen:[50,100,250,500,1000,2500,5000,10000] },
+  { id:"perfect",  ic:"💯", naam:"Perfecte rondes",         stappen:[1,5,10,25,50,100,250] },
+  { id:"reeks",    ic:"🔥", naam:"Langste reeks goed",      stappen:[5,8,10,12,15,20] },
+  { id:"dagen",    ic:"📅", naam:"Dagen op rij gespeeld",   stappen:[2,3,5,7,14,30,60,100] },
+  { id:"moeilijk", ic:"⭐", naam:"Rondes op Moeilijk",      stappen:[1,10,25,50,100,250] },
+  { id:"toetsen",  ic:"📝", naam:"Eindtoetsen geoefend",    stappen:[1,5,10,25,50,100] },
+  { id:"vakken",   ic:"🌍", naam:"Verschillende vakken",    stappen:[2,3,4,5,6,8] },
+];
+function spelerStats(rondes){
+  const dagKey = d => { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`; };
+  const dagen = [...new Set(rondes.map(r => dagKey(r.gespeeld_op)))].map(k => { const [y,m,d] = k.split("-").map(Number); return new Date(y,m,d).getTime(); }).sort((a,b)=>a-b);
+  let besteReeks = dagen.length ? 1 : 0, reeks = 1;
+  for (let i=1;i<dagen.length;i++){ reeks = Math.round((dagen[i]-dagen[i-1])/864e5) === 1 ? reeks+1 : 1; besteReeks = Math.max(besteReeks, reeks); }
+  return {
+    rondes: rondes.length, goed: rondes.reduce((t,r)=>t+r.goed,0), perfect: rondes.filter(r => r.goed === r.totaal).length,
+    reeks: rondes.reduce((m,r)=>Math.max(m, r.langste_reeks||0),0), dagen: besteReeks,
+    moeilijk: rondes.filter(r => r.moeilijkheid == 3).length, toetsen: rondes.filter(r => r.toets_id).length,
+    vakken: new Set(rondes.map(r => bronVan(r).vak).filter(Boolean)).size,
+  };
+}
+const behaald = (m, waarde) => m.stappen.filter(s => waarde >= s).length;
+function mijlpalenBlok(rondes){
+  const st = spelerStats(rondes);
+  const totaal = MIJLPALEN.reduce((t,m)=>t+behaald(m, st[m.id]),0), max = MIJLPALEN.reduce((t,m)=>t+m.stappen.length,0);
+  return h("div",{class:"card stack"},
+    h("div",{class:"row"}, h("h3",{style:"flex:1"},"🏅 Mijlpalen"), h("span",{class:"pill"},`${totaal} / ${max}`)),
+    h("div",{class:"mijlpalen"}, MIJLPALEN.map(m => {
+      const w = st[m.id], n = behaald(m, w), volgende = m.stappen[n];
+      const vorige = n ? m.stappen[n-1] : 0;
+      return h("div",{class:"mp" + (n ? "" : " nul")},
+        h("div",{class:"kop"}, h("span",{class:"ic"},m.ic), m.naam),
+        h("div",{class:"medailles"}, n ? MEDAILLES.slice(0,n).join("") : h("span",{class:"muted small"},"Nog geen medaille")),
+        volgende != null
+          ? [h("div",{class:"xp"}, h("i",{style:`width:${Math.round(Math.min(1,(w-vorige)/(volgende-vorige))*100)}%`})),
+             h("div",{class:"muted small"}, `${nl(w)} / ${nl(volgende)} voor ${MEDAILLES[n]}`)]
+          : h("div",{class:"small",style:"color:var(--orange)"},"Helemaal uitgespeeld! 🎉"));
+    })));
 }
 
 /* ============ hulpjes ============ */
@@ -336,7 +437,7 @@ function laden(titel, sub){ $app.replaceChildren(header(), h("div",{class:"card 
 function fout(e){ console.error(e); return (e && (e.message || e.error_description)) || String(e); }
 
 /* ============ status ============ */
-const S = { user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
+const S = { pauzes:[], user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
 // Een beheerder kan de app bekijken zoals een speler hem ziet (S.alsSpeler)
 S.alsSpeler = sessionStorage.getItem("qm:alsSpeler") === "1";
 const echtBeheerder = () => S.profiel?.rol === "beheerder";
@@ -390,17 +491,19 @@ function toetsDatumTekst(d){
   return `Toets over ${n} dagen`;
 }
 
-const RONDE_VELDEN = "id, speler_id, onderwerp_id, toets_id, moeilijkheid, met_tijd, score, goed, totaal, gespeeld_op";
+const RONDE_VELDEN = "id, speler_id, onderwerp_id, toets_id, moeilijkheid, met_tijd, score, goed, totaal, langste_reeks, gespeeld_op";
 async function laadAlles(){
-  const [v, o, p, r, t, to] = await Promise.all([
+  const [v, o, p, r, t, to, pz] = await Promise.all([
     sb.from("vakken").select("*").order("volgorde").order("naam"),
     sb.from("onderwerpen").select("id, vak_id, titel, emoji, niveau, zichtbaar, vraagsoorten, aangemaakt, vragen(count)").order("titel"),
     sb.from("profielen").select("*").order("naam"),
     sb.from("rondes").select(RONDE_VELDEN).order("gespeeld_op",{ascending:false}).limit(5000),
     sb.from("toetsen").select("*").order("datum",{ascending:true,nullsFirst:false}),
     sb.from("toets_onderwerpen").select("*"),
+    sb.from("pauzes").select("*").order("van"),
   ]);
   for (const x of [v,o,p,r,t,to]) if (x.error) throw x.error;
+  S.pauzes = pz.error ? [] : pz.data;   // werkt ook als script 09 nog niet is uitgevoerd
   S.toetsen = t.data; S.toetsOw = to.data;
   S.vakken = v.data; S.onderwerpen = o.data.map(x => ({...x, aantal: x.vragen?.[0]?.count ?? 0})); S.profielen = p.data; S.rondes = r.data;
   S.profiel = S.profielen.find(x => x.id === S.user.id) || S.profiel;
@@ -569,7 +672,8 @@ function viewHome(){
   render(
     flash ? h("p",{class:"note ok"},flash) : null,
     echtBeheerder() && !S.alsSpeler ? beheerStrip()
-      : h("div",{class:"stack"}, h("h1",null,`Welkom terug, ${S.profiel?.naam || ""}`), rangBalk(S.rondes.filter(r=>r.speler_id===S.user.id).reduce((t,r)=>t+r.score,0))),
+      : h("div",{class:"stack"}, h("h1",null,`Welkom terug, ${S.profiel?.naam || ""}`), rangBalk(puntenStand(S.user.id).punten), vervalMelding(puntenStand(S.user.id)),
+          h("div",null, h("button",{class:"btn",onclick:()=>go("#speler/"+S.user.id)},"🏅 Mijn mijlpalen & rondes"))),
     komendeToetsen(),
     h("div",{style:"height:18px"}), leeg, h("div",{class:"grid"},tegels));
 }
@@ -889,13 +993,21 @@ function speelPaneel(soort, id, aantalVragen){
       : h("p",{class:"muted"},"Nog niemand heeft dit gespeeld op deze moeilijkheid. Word jij de eerste?"));
   }
   const mijn = S.rondes.filter(r => r.speler_id === S.user.id && r[soort+"_id"] == id).slice(0,8);
+  // Knop "Oefen je fouten" verschijnt als deze speler hier vragen fout heeft staan
+  const foutenKnop = h("span");
+  if (!echtBeheerder()){
+    const owIds = soort === "toets" ? toetsOnderwerpen(id) : [Number(id)];
+    sb.from("voortgang").select("vraag_id, vragen!inner(onderwerp_id, status)").eq("speler_id", S.user.id).eq("laatst_fout", true)
+      .in("vragen.onderwerp_id", owIds).eq("vragen.status","actief")
+      .then(({ data }) => { if (data?.length) foutenKnop.replaceChildren(h("button",{class:"btn blue big",onclick:()=>startRonde(soort, id, { fouten:true })},`🎯 Oefen je fouten (${data.length})`)); });
+  }
   tekenDiff();
   return [
     h("div",{class:"card stack"},
       h("h3",null,"Kies je niveau"), diffBox,
       h("div",{class:"row"}, seg, uitlegTempo),
       aantalVragen >= 4
-        ? h("button",{class:"btn green big",onclick:()=>startRonde(soort, id)}, soort === "toets" ? "▶ Start de oefentoets" : "▶ Start de quiz")
+        ? h("div",{class:"row"}, h("button",{class:"btn green big",onclick:()=>startRonde(soort, id)}, soort === "toets" ? "▶ Start de oefentoets" : "▶ Start de quiz"), foutenKnop)
         : h("p",{class:"note warn"},"Er zijn nog te weinig goedgekeurde vragen om te spelen.")),
     h("div",{class:"card"}, bord),
     mijn.length ? h("div",{class:"card"}, h("h3",null,"Jouw laatste rondes"),
@@ -1105,6 +1217,7 @@ function stopTimer(){ cancelAnimationFrame(TIMER.raf); TIMER.raf = 0; }
 async function startRonde(soort, id, opties = {}){
   laden("Quiz klaarzetten…");
   const alleenVoorstellen = !!opties.voorstellen && echtBeheerder();
+  const alleenFouten = !!opties.fouten;
   const d = gekozenDiff;
   const owIds = soort === "toets" ? toetsOnderwerpen(id) : [Number(id)];
   const titel = soort === "toets" ? toets(id)?.titel : onderwerp(id)?.titel;
@@ -1123,6 +1236,16 @@ async function startRonde(soort, id, opties = {}){
   const ids = vragen.map(q => q.id);
   const { data: vg } = ids.length ? await sb.from("voortgang").select("vraag_id, keer_gezien, laatst_fout").eq("speler_id", S.user.id).in("vraag_id", ids) : { data:[] };
   const vgMap = new Map((vg||[]).map(x => [x.vraag_id, x]));
+  if (alleenFouten){
+    const fouten = vragen.filter(q => vgMap.get(q.id)?.laatst_fout);
+    if (!fouten.length) return render(h("p",{class:"note ok"},"Je hebt hier geen fouten meer openstaan. Goed bezig!"), h("button",{class:"btn",onclick:()=>go(`#${soort}/${id}`)},"Terug"));
+    const taal = vak((soort === "toets" ? toets(id) : onderwerp(id))?.vak_id)?.taal || null;
+    S.ronde = { soort, id:Number(id), titel, taal, d, metTijd, vgMap, i:0, score:0, reeks:0, langste:0, goed:0, antwoorden:[], fouten:true,
+      lijst: shuffle(fouten).slice(0,15).map(q => ({ q, opts: shuffle(q.opties.map((t,i)=>({t, ok:i===q.juist}))) })) };
+    S.terug = `#${soort}/${id}`;
+    if (location.hash !== "#spelen") location.hash = "#spelen";
+    return toonVraag();
+  }
   // Een vraag en zijn varianten vormen één familie: per ronde komt er maximaal één uit elke familie.
   const families = new Map();
   for (const q of vragen){ const k = q.variant_van || q.id; if (!families.has(k)) families.set(k, []); families.get(k).push(q); }
@@ -1311,7 +1434,12 @@ async function klaar(){
   const oudRecord = beste(S.user.id, r.soort, r.id, r.d);
   const proef = echtBeheerder();           // een beheerder doet niet mee: zijn rondes worden niet opgeslagen
   let data = null, error = null;
-  if (!proef){
+  const mijnVoor = S.rondes.filter(x => x.speler_id === S.user.id);
+  const statsVoor = spelerStats(mijnVoor), levelVoor = level(puntenStand(S.user.id, mijnVoor).punten).L;
+  if (!proef && r.fouten){
+    const vg = r.antwoorden.map(a => ({ speler_id:S.user.id, vraag_id:a.v, keer_gezien:(r.vgMap.get(a.v)?.keer_gezien||0)+1, laatst_fout:!a.ok, bijgewerkt:new Date().toISOString() }));
+    await sb.from("voortgang").upsert(vg, { onConflict:"speler_id,vraag_id" });
+  } else if (!proef){
     laden("Score opslaan…");
     const rij = { [r.soort + "_id"]: r.id, moeilijkheid:r.d, met_tijd:r.metTijd, score:r.score, goed:r.goed, totaal:r.lijst.length, langste_reeks:r.langste, antwoorden:r.antwoorden };
     ({ data, error } = await sb.from("rondes").insert(rij).select(RONDE_VELDEN).single());
@@ -1320,11 +1448,19 @@ async function klaar(){
     if (data) S.rondes.unshift(data);
   }
   S.ronde = null;
-  const record = !proef && r.score > oudRecord && r.score > 0;
+  const record = !proef && !r.fouten && r.score > oudRecord && r.score > 0;
+  const mijnNa = S.rondes.filter(x => x.speler_id === S.user.id);
+  const statsNa = spelerStats(mijnNa), levelNa = level(puntenStand(S.user.id, mijnNa).punten);
+  const nieuweMedailles = proef || r.fouten ? [] : MIJLPALEN.filter(m => behaald(m, statsNa[m.id]) > behaald(m, statsVoor[m.id]))
+    .map(m => `${m.ic} ${m.naam}: ${MEDAILLES[behaald(m, statsNa[m.id])-1]} (${nl(m.stappen[behaald(m, statsNa[m.id])-1])})`);
+  const levelOmhoog = !proef && !r.fouten && levelNa.L > levelVoor;
   const deel = r.goed / r.lijst.length;
   const sterren = deel >= .9 ? 3 : deel >= .7 ? 2 : deel >= .4 ? 1 : 0;
   render(h("div",{class:"stack"},
     error ? h("p",{class:"note err"},"Je score kon niet worden opgeslagen: " + fout(error)) : null,
+    r.fouten && !proef ? h("p",{class:"note"},"🎯 Oefenronde met je fouten: dit levert geen punten op, maar wat je nu goed had, staat niet meer bij je fouten.") : null,
+    levelOmhoog ? h("div",{class:"nieuw"}, h("strong",null,`⬆️ Level ${levelNa.L}!`), " ", levelNa.titel) : null,
+    nieuweMedailles.length ? h("div",{class:"nieuw"}, h("strong",null,"🏅 Nieuwe mijlpaal" + (nieuweMedailles.length > 1 ? "en" : "") + "!"), nieuweMedailles.map(t => h("div",null,t))) : null,
     proef ? h("p",{class:"note"}, r.voorstellen ? "🧪 Proefronde met de voorstellen: niets is opgeslagen. Spelers zien deze vragen pas als je ze goedkeurt." : "🧪 Proefronde als beheerder: deze score is niet opgeslagen en staat niet op het scorebord.") : null,
     h("div",{class:"card result stack"},
       record ? h("div",null,h("span",{class:"record"},"🏆 Nieuw record!")) : null,
@@ -1333,12 +1469,13 @@ async function klaar(){
       h("p",null,`${r.goed} van de ${r.lijst.length} goed · langste reeks: ${r.langste}`),
       !proef && !record && oudRecord ? h("p",{class:"muted"},`Je record is ${nl(oudRecord)}. ${oudRecord - r.score <= 300 ? "Bijna!" : "Probeer het nog eens!"}`) : null,
       h("div",{class:"row",style:"justify-content:center"},
-        h("button",{class:"btn green big",onclick:()=>startRonde(r.soort, r.id, { voorstellen:r.voorstellen })},"🔁 Nog een keer"),
+        h("button",{class:"btn green big",onclick:()=>startRonde(r.soort, r.id, { voorstellen:r.voorstellen, fouten:r.fouten })},"🔁 Nog een keer"),
+        !proef && !r.fouten && r.goed < r.lijst.length ? h("button",{class:"btn blue",onclick:()=>startRonde(r.soort, r.id, { fouten:true })},"🎯 Oefen je fouten") : null,
         h("button",{class:"btn",onclick:()=>go(S.terug)},"Terug"))),
     h("div",{class:"card"}, h("h3",null,"Zo ging het"),
       proef && S.aal === "aal2" ? h("p",{class:"muted small"},"Beoordeel per vraag de moeilijkheid, keur voorstellen goed of verwijder vragen die niet duidelijk zijn. Dit zien spelers niet.") : null,
       reviewLijst(r.antwoorden, { beoordelen: proef && S.aal === "aal2", voorstellen: r.voorstellen }))));
-  if (record) confetti();
+  if (record || levelOmhoog || nieuweMedailles.length) confetti();
 }
 // Beheerderstools onder een vraag in de terugblik van een proefronde
 function beoordeelBalk(a, voorstel){
@@ -1402,6 +1539,7 @@ function viewScorebord(){
     const x = per.get(r.speler_id) || { id:r.speler_id, punten:0, rondes:0, goed:0, totaal:0 };
     x.punten += r.score; x.rondes++; x.goed += r.goed; x.totaal += r.totaal; per.set(r.speler_id, x);
   }
+  if (periode === "altijd" && !bordVak) for (const x of per.values()) x.punten = puntenStand(x.id).punten;
   const lijst = [...per.values()].sort((a,b)=>b.punten-a.punten);
   const seg = h("div",{class:"seg",role:"group","aria-label":"Periode"},
     [["week","Deze week"],["maand","Deze maand"],["altijd","Altijd"]].map(([k,t]) => h("button",{"aria-pressed":String(periode===k),onclick:()=>{periode=k;viewScorebord();}},t)));
@@ -1424,19 +1562,25 @@ function viewScorebord(){
 function viewSpeler(id){
   const p = profiel(id); if (!p) return go("#scorebord");
   const rondes = S.rondes.filter(r => r.speler_id === id);
-  const punten = rondes.reduce((s,r)=>s+r.score,0), goed = rondes.reduce((s,r)=>s+r.goed,0), tot = rondes.reduce((s,r)=>s+r.totaal,0);
+  const stand = puntenStand(id, rondes);
+  const punten = stand.punten, goed = rondes.reduce((s,r)=>s+r.goed,0), tot = rondes.reduce((s,r)=>s+r.totaal,0);
   render(h("div",{class:"stack"},
     h("div",{class:"row"}, poppetje(p, 72), h("h2",null,p.naam),
       isBeheerder() ? h("div",{class:"row",style:"margin-left:auto;gap:4px"},
         h("button",{class:"btn link",onclick:()=>wijzigNaam(p)},"Naam wijzigen"),
         p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${p.naam} verwijderen?`)) verwijderFoto(p); }},"Foto verwijderen") : null) : null),
-    rangBalk(punten),
+    p.rol !== "beheerder" ? rangBalk(punten) : null,
+    p.rol !== "beheerder" ? mijlpalenBlok(rondes) : null,
+    stand.verloren ? h("p",{class:"muted small"},`Verdiend: ${nl(stand.verdiend)} punten · kwijtgeraakt door niet spelen: ${nl(stand.verloren)}`) : null,
+    id === S.user.id ? h("details",null, h("summary",null,"ℹ️ Hoe werken de punten?"),
+      h("p",{class:"small"},`Met elke quiz verdien je punten. Speel je een week niet, dan is er niets aan de hand. Vanaf de ${VERVAL.gratisDagen+1}e dag zonder spelen gaat er elke dag een klein beetje af (10% van wat je gemiddeld met een quiz verdient). Je raakt nooit meer dan een kwart van je punten kwijt, en in vakanties staat de teller stil.`)) : null,
     h("div",{class:"row"}, h("span",{class:"pill"},`⭐ ${nl(punten)} punten`), h("span",{class:"pill"},`${rondes.length} quizzen`), tot ? h("span",{class:"pill"},`${Math.round(goed/tot*100)}% goed`) : null),
-    h("div",{class:"card scroll"}, h("h3",null,"Laatste rondes"),
-      rondes.length ? h("table",null,h("tbody",null, rondes.slice(0,30).map(r => { const o = bronVan(r);
+    h("div",{class:"card scroll"}, h("h3",null, id === S.user.id ? "Mijn rondes" : "Laatste rondes"),
+      id === S.user.id && rondes.length ? h("p",{class:"muted small"},"Tik op een ronde om terug te kijken wat je antwoordde, wat het goede antwoord was en de uitleg.") : null,
+      rondes.length ? h("table",null,h("tbody",null, rondes.slice(0,100).map(r => { const o = bronVan(r);
         return h("tr",{class:"clickrow",onclick:()=>go("#ronde/"+r.id)},
           h("td",null,datum(r.gespeeld_op)), h("td",null,(o?.emoji||"")+" "+(o?.titel||"")), h("td",null,DIFF[r.moeilijkheid].sterren),
-          h("td",{class:"num"},`${r.goed}/${r.totaal}`), h("td",{class:"num"},nl(r.score)+" ›")); })))
+          h("td",{class:"num"}, r.goed === r.totaal ? "💯" : h("span",{style: r.goed < r.totaal ? "color:var(--bad)" : null},`${r.totaal - r.goed} fout`)), h("td",{class:"num"},nl(r.score)+" ›")); })))
       : h("p",{class:"muted"},"Nog geen rondes gespeeld."))));
 }
 
@@ -1576,6 +1720,40 @@ async function beheerVakken(){
       : h("p",{class:"muted"},"Nog geen icoontjes geüpload.")));
 }
 
+/* --- pauze (vakantie) --- */
+function pauzeKaart(){
+  const vandaag = new Date(); const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const nu = S.pauzes.find(p => isPauzeDag(dagNr(Date.now())));
+  const komend = S.pauzes.filter(p => dagNr(p.van+"T12:00:00") > dagNr(Date.now()));
+  const geweest = S.pauzes.filter(p => p.tot && dagNr(p.tot+"T12:00:00") < dagNr(Date.now())).slice(-3);
+  const van = h("input",{type:"date",id:"pv",value:iso(vandaag),style:"max-width:200px;border:2px solid var(--line);border-radius:8px;background:#0F1420;padding:10px 12px"});
+  const tot = h("input",{type:"date",id:"pt",style:"max-width:200px;border:2px solid var(--line);border-radius:8px;background:#0F1420;padding:10px 12px"});
+  const reden = h("input",{type:"text",id:"pr",maxlength:"40",placeholder:"bijv. Kerstvakantie"});
+  const fmt = d => new Date(d+"T12:00:00").toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"});
+  const opslaan = async (rij, melding) => { const { error } = rij.id ? await sb.from("pauzes").update({ tot: rij.tot }).eq("id", rij.id) : await sb.from("pauzes").insert(rij);
+    if (error) return toast(/relation|does not exist|schema cache/i.test(error.message) ? "Voer eerst SQL-script 09 uit in Supabase." : fout(error)); await laadAlles(); toast(melding); viewBeheer("gebruikers"); };
+  const gisteren = () => { const d = new Date(); d.setDate(d.getDate()-1); return iso(d); };
+  return h("div",{class:"card stack"},
+    h("h3",null,"⏸️ Pauze voor puntenverlies"),
+    h("p",{class:"muted small"},`Spelers verliezen punten als ze langer dan ${VERVAL.gratisDagen} dagen niet spelen. Tijdens een pauze (vakantie, of als er even geen nieuwe quizzen zijn) staat die teller stil.`),
+    nu ? h("div",{class:"row"}, h("span",{class:"tag",style:"background:var(--cyan);border-color:var(--cyan);color:#04161A;font-size:.95rem"},"⏸️ Pauze actief"),
+          h("span",null, (nu.reden ? nu.reden + " · " : "") + "sinds " + fmt(nu.van) + (nu.tot ? " t/m " + fmt(nu.tot) : " · tot je hem stopt")),
+          h("button",{class:"btn",onclick:()=>{ if (confirm("Pauze stoppen? Vanaf vandaag tellen dagen zonder spelen weer mee.")) opslaan({ id:nu.id, tot: nu.van > gisteren() ? nu.van : gisteren() }, "Pauze gestopt."); }},"▶️ Pauze stoppen"))
+       : h("p",null,"Er is nu geen pauze: het puntenverlies loopt."),
+    komend.length || geweest.length ? h("div",{class:"small"}, [...komend.map(p => h("div",{class:"inv"},
+        h("span",{style:"flex:1"},`📅 Gepland: ${p.reden ? p.reden + " · " : ""}${fmt(p.van)}${p.tot ? " t/m " + fmt(p.tot) : ""}`),
+        h("button",{class:"btn link",onclick:async()=>{ if (!confirm("Deze geplande pauze verwijderen?")) return; const { error } = await sb.from("pauzes").delete().eq("id", p.id); if (error) return toast(fout(error)); await laadAlles(); viewBeheer("gebruikers"); }},"Verwijderen"))),
+      ...geweest.map(p => h("div",{class:"inv muted"}, `Geweest: ${p.reden ? p.reden + " · " : ""}${fmt(p.van)} t/m ${fmt(p.tot)}`))]) : null,
+    h("details",null, h("summary",null, nu ? "Een pauze plannen" : "Pauze aanzetten of plannen"),
+      h("div",{class:"stack",style:"margin-top:10px"},
+        h("div",{class:"row"}, h("div",null,h("label",{class:"f",for:"pv"},"Van"),van), h("div",null,h("label",{class:"f",for:"pt"},"Tot en met (leeg = tot je hem stopt)"),tot)),
+        h("div",null,h("label",{class:"f",for:"pr"},"Reden (spelers zien dit)"),reden),
+        h("div",null,h("button",{class:"btn green",onclick:()=>{
+          if (!van.value) return toast("Kies een begindatum.");
+          if (tot.value && tot.value < van.value) return toast("De einddatum ligt vóór de begindatum.");
+          opslaan({ van: van.value, tot: tot.value || null, reden: reden.value.trim() || null }, "Pauze opgeslagen."); }},"Opslaan")))));
+}
+
 /* --- tab Gebruikers --- */
 async function beheerGebruikers(){
   const { data: uitnodigingen } = await sb.from("uitnodigingen").select("*").order("aangemaakt",{ascending:false});
@@ -1597,13 +1775,15 @@ async function beheerGebruikers(){
     return { p, n:r.length, week:r.filter(x => Date.now()-new Date(x.gespeeld_op) < 7*864e5).length, pct: tot ? Math.round(goed/tot*100)+"%" : "–", laatst:r[0]?.gespeeld_op };
   });
   return h("div",{class:"stack"},
+    pauzeKaart(),
     h("div",{class:"card stack scroll"},
       h("h3",null,"Spelers"),
       h("table",null,
-        h("thead",null,h("tr",null,h("th",null,"App-naam"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Deze week"),h("th",{class:"num"},"Goed"),h("th",null,"Laatst"),h("th",null,""))),
+        h("thead",null,h("tr",null,h("th",null,"App-naam"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Deze week"),h("th",{class:"num"},"Goed"),h("th",{class:"num"},"Punten"),h("th",null,"Laatst"),h("th",null,""))),
         h("tbody",null, rijen.map(x => h("tr",null,
           h("td",null, spelerNaam(x.p), x.p.rol === "beheerder" ? h("span",{class:"tag",style:"margin-left:8px"},"beheerder") : null),
           h("td",{class:"num"},x.n), h("td",{class:"num"},x.week), h("td",{class:"num"},x.pct),
+          h("td",{class:"num"}, x.p.rol === "beheerder" ? "–" : (() => { const st = puntenStand(x.p.id); return h("span",{title: st.verloren ? `${nl(st.verloren)} punten kwijt door niet spelen` : null}, nl(st.punten), st.sinds > VERVAL.gratisDagen && !st.nuPauze && !st.opBodem ? " 📉" : ""); })()),
           h("td",{class:"small muted"}, x.laatst ? datum(x.laatst) : "nog nooit"),
           h("td",{class:"num"},
             h("button",{class:"btn link",onclick:()=>go("#overzicht/"+x.p.id)},"Details"),
