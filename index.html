@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.14";
+const VERSIE = "2026-11-12.15";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -1140,31 +1140,59 @@ function fotoBlok(o){
   const kop = h("summary",null,"📷 Foto’s van deze quiz");
   const inhoud = h("div",{class:"stack",style:"margin-top:10px"}, h("p",{class:"muted small"},"Laden…"));
   const blok = h("details",null, kop, inhoud);
-  (async () => {
-    const { data: fotos, error } = await sb.from("onderwerp_fotos").select("id, pad, verwerkt_op, aangemaakt").eq("onderwerp_id", o.id).order("aangemaakt");
-    if (error){ inhoud.replaceChildren(h("p",{class:"note err"}, /verwerkt_op/.test(error.message) ? "Voer eerst SQL-script 11 uit in Supabase." : fout(error))); return; }
+  let fotos = [], url = new Map(), selecteren = false;
+  const gekozen = new Set();
+  const zetKop = () => { const open = fotos.filter(f => !f.verwerkt_op).length;
+    kop.textContent = `📷 Foto’s van deze quiz (${fotos.length}${open ? ` · ${open} nog niet gelezen` : ""})`; };
+  // Verwijderen zonder de pagina opnieuw op te bouwen, zodat je blijft staan waar je was
+  async function verwijder(lijst){
+    if (!lijst.length) return;
+    await sb.storage.from("fotos").remove(lijst.map(f => f.pad));
+    const { error } = await sb.from("onderwerp_fotos").delete().in("id", lijst.map(f => f.id));
+    if (error) return toast(fout(error));
+    const weg = new Set(lijst.map(f => f.id));
+    fotos = fotos.filter(f => !weg.has(f.id)); lijst.forEach(f => gekozen.delete(f.id));
+    if (!fotos.length) selecteren = false;
+    toast(lijst.length === 1 ? "Foto verwijderd." : `${lijst.length} foto’s verwijderd.`);
+    zetKop(); teken();
+  }
+  function teken(){
     const open = fotos.filter(f => !f.verwerkt_op);
-    kop.textContent = `📷 Foto’s van deze quiz (${fotos.length}${open.length ? ` · ${open.length} nog niet gelezen` : ""})`;
-    if (open.length) blok.open = true;
-    if (!fotos.length) return inhoud.replaceChildren(h("p",{class:"muted"},"Nog geen foto’s."));
-    const { data: urls } = await sb.storage.from("fotos").createSignedUrls(fotos.map(f => f.pad), 3600);
-    const url = new Map((urls||[]).map(u => [u.path, u.signedUrl]));
+    if (!fotos.length) return inhoud.replaceChildren(h("p",{class:"muted"},"Geen foto’s."));
     inhoud.replaceChildren(
       open.length ? h("div",{class:"row"}, h("button",{class:"btn green",onclick:async()=>{
           try { const res = await verwerkFotos(o.id); S.flash = await metControle(o.id, `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s.`); await laadAlles(); }
           catch (e) { await laadAlles().catch(()=>{}); S.flash = "⚠️ " + fout(e) + " Probeer het straks nog eens; de foto’s blijven bewaard."; }
           viewOnderwerp(o.id);
         }}, `▶ Lees de ${open.length} resterende foto’s`), h("span",{class:"muted small"},"Gemini leest ze in porties van 2.")) : null,
-      h("div",{class:"thumbs"}, fotos.map((f,i) => h("div",{class:"thumb",title: f.verwerkt_op ? "Gelezen" : "Nog niet gelezen"},
-        h("a",{href:url.get(f.pad)||"#",target:"_blank",rel:"noopener"}, h("img",{src:url.get(f.pad)||"",alt:`Foto ${i+1}`,loading:"lazy"})),
-        h("span",{style:"position:absolute;left:4px;bottom:4px;background:var(--bg);border-radius:6px;padding:1px 6px;font-size:.8rem"}, f.verwerkt_op ? "✅" : "⏳"),
-        h("button",{"aria-label":`Foto ${i+1} verwijderen`,onclick:async()=>{
-          if (!confirm("Deze foto verwijderen? De vragen die er al uit gemaakt zijn, blijven staan.")) return;
-          await sb.storage.from("fotos").remove([f.pad]);
-          const { error } = await sb.from("onderwerp_fotos").delete().eq("id", f.id);
-          if (error) return toast(fout(error)); toast("Foto verwijderd."); viewOnderwerp(o.id);
-        }},"×")))),
-      h("p",{class:"muted small"},"✅ = gelezen door Gemini · ⏳ = nog niet gelezen. Tik op een foto om hem groot te bekijken. De foto’s blijven bewaard, zodat je later meer vragen kunt laten maken."));
+      h("div",{class:"row"},
+        selecteren
+          ? [h("button",{class:"btn red",disabled:!gekozen.size,onclick:()=>{ const lijst = fotos.filter(f => gekozen.has(f.id));
+                if (confirm(`${lijst.length} foto’s verwijderen? De vragen die er al uit gemaakt zijn, blijven staan.`)) verwijder(lijst); }}, `🗑️ Verwijder ${gekozen.size || ""} geselecteerd`.replace("  "," ")),
+             h("button",{class:"btn link",onclick:()=>{ fotos.forEach(f => gekozen.add(f.id)); teken(); }},"Alles"),
+             fotos.some(f => f.verwerkt_op) ? h("button",{class:"btn link",onclick:()=>{ gekozen.clear(); fotos.filter(f => f.verwerkt_op).forEach(f => gekozen.add(f.id)); teken(); }},"Alle gelezen") : null,
+             h("button",{class:"btn link",onclick:()=>{ selecteren = false; gekozen.clear(); teken(); }},"Klaar")]
+          : h("button",{class:"btn",onclick:()=>{ selecteren = true; teken(); }},"☑️ Meerdere verwijderen")),
+      h("div",{class:"thumbs"}, fotos.map((f,i) => {
+        const aan = gekozen.has(f.id);
+        return h("div",{class:"thumb",style: aan ? "outline:3px solid var(--bad);outline-offset:-3px" : null, title: f.verwerkt_op ? "Gelezen" : "Nog niet gelezen"},
+          selecteren
+            ? h("button",{type:"button",style:"all:unset;display:block;width:100%;height:100%;cursor:pointer","aria-pressed":String(aan),"aria-label":`Foto ${i+1} ${aan ? "niet " : ""}selecteren`,
+                onclick:()=>{ aan ? gekozen.delete(f.id) : gekozen.add(f.id); teken(); }}, h("img",{src:url.get(f.pad)||"",alt:`Foto ${i+1}`,loading:"lazy",style: aan ? "opacity:.55" : null}))
+            : h("a",{href:url.get(f.pad)||"#",target:"_blank",rel:"noopener"}, h("img",{src:url.get(f.pad)||"",alt:`Foto ${i+1}`,loading:"lazy"})),
+          h("span",{style:"position:absolute;left:4px;bottom:4px;background:var(--bg);border-radius:6px;padding:1px 6px;font-size:.8rem;pointer-events:none"}, aan ? "🗑️" : f.verwerkt_op ? "✅" : "⏳"),
+          selecteren ? null : h("button",{"aria-label":`Foto ${i+1} verwijderen`,onclick:()=>{ if (confirm("Deze foto verwijderen? De vragen die er al uit gemaakt zijn, blijven staan.")) verwijder([f]); }},"×"));
+      })),
+      h("p",{class:"muted small"}, selecteren ? "Tik op de foto’s die weg mogen en kies daarna ‘Verwijder geselecteerd’."
+        : "✅ = gelezen door Gemini · ⏳ = nog niet gelezen. Tik op een foto om hem groot te bekijken. De foto’s blijven bewaard, zodat je later meer vragen kunt laten maken."));
+  }
+  (async () => {
+    const { data, error } = await sb.from("onderwerp_fotos").select("id, pad, verwerkt_op, aangemaakt").eq("onderwerp_id", o.id).order("aangemaakt");
+    if (error){ inhoud.replaceChildren(h("p",{class:"note err"}, /verwerkt_op/.test(error.message) ? "Voer eerst SQL-script 11 uit in Supabase." : fout(error))); return; }
+    fotos = data; zetKop();
+    if (fotos.some(f => !f.verwerkt_op)) blok.open = true;
+    if (fotos.length){ const { data: urls } = await sb.storage.from("fotos").createSignedUrls(fotos.map(f => f.pad), 3600); url = new Map((urls||[]).map(u => [u.path, u.signedUrl])); }
+    teken();
   })();
   return blok;
 }
