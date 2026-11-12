@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.12";
+const VERSIE = "2026-11-12.13";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -678,12 +678,12 @@ function beheerStrip(){
   const week = new Set(S.rondes.filter(r => Date.now()-new Date(r.gespeeld_op) < 7*864e5 && telMee(r.speler_id)).map(r => r.speler_id)).size;
   const live = S.onderwerpen.filter(o => o.zichtbaar).length, verborgen = S.onderwerpen.length - live;
   const teControleren = h("b",null,"…");
-  if (isBeheerder()) sb.from("vragen").select("id",{count:"exact",head:true}).eq("status","voorstel").then(({count}) => { teControleren.textContent = count ?? 0; teControleren.parentElement?.classList.toggle("warn", count > 0); });
+  if (isBeheerder()) sb.from("vragen").select("id",{count:"exact",head:true}).in("status",["voorstel","gemeld"]).then(({count}) => { teControleren.textContent = count ?? 0; teControleren.parentElement?.classList.toggle("warn", count > 0); });
   return h("div",{class:"stack"},
     h("div",{class:"row"}, h("h1",{style:"flex:1"},`Hoi ${S.profiel?.naam || ""}`),
       h("button",{class:"btn",onclick:()=>wisselWeergave(true)},"👀 Bekijk als speler")),
     h("div",{class:"adminstrip"},
-      h("button",{onclick:()=>go("#beheer/quizzen")}, isBeheerder() ? teControleren : h("b",null,"🔒"), isBeheerder() ? "vragen te controleren" : "ontgrendel Beheer"),
+      h("button",{onclick:()=>go("#beheer/quizzen")}, isBeheerder() ? teControleren : h("b",null,"🔒"), isBeheerder() ? "vragen gemeld of niet gecontroleerd" : "ontgrendel Beheer"),
       h("button",{onclick:()=>go("#beheer/quizzen")}, h("b",null,live), verborgen ? `quizzen live · ${verborgen} verborgen` : "quizzen live"),
       h("button",{onclick:()=>go("#beheer/gebruikers")}, h("b",null,`${week}/${spelers.length}`), "spelers actief deze week")));
 }
@@ -943,8 +943,9 @@ function viewFotos({ vakId, onderwerpId }){
         paden.push(pad);
       }
       const res = await verwerkFotos(ow.id);
+      const tekst = await metControle(ow.id, `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s.`);
       await laadAlles();
-      S.flash = `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s. Controleer ze hieronder en keur ze goed.` + (bestaand ? "" : " Geef de quiz daarna vrij, dan kunnen de spelers hem zien.");
+      S.flash = tekst + (bestaand ? "" : " Geef de quiz vrij als je klaar bent, dan kunnen de spelers hem zien.");
       go("#onderwerp/" + ow.id);
     } catch (e) {
       await laadAlles().catch(()=>{});
@@ -984,6 +985,24 @@ async function verklein(file){
     return await new Promise((ok,nok) => c.toBlob(b => b ? ok(b) : nok(new Error("Foto verkleinen mislukt")), "image/jpeg", 0.85));
   } catch { throw new Error("Deze foto kon niet worden gelezen. Gebruik jpg of png."); }
 }
+// Laat Gemini alle voorstellen van een quiz streng nakijken: goed → live, verbeteren → verbeterd live, anders weg
+async function controleerVoorstellen(owId){
+  const t = { goedgekeurd:0, verbeterd:0, verwijderd:0, open:0 };
+  for (let ronde = 0; ronde < 6; ronde++){
+    laden("Gemini controleert de vragen…", "Een tweede, strenge controle: klopt het antwoord, is de vraag duidelijk en belangrijk? Dit duurt meestal een minuut.");
+    const r = await roepFunctie({ actie:"controleren", onderwerp_id: owId });
+    t.goedgekeurd += r.goedgekeurd; t.verbeterd += r.verbeterd; t.verwijderd += r.verwijderd; t.open = r.open;
+    if (!r.open || !r.beoordeeld) break;
+  }
+  return t;
+}
+const controleTekst = t => `Gecontroleerd: ${t.goedgekeurd} goedgekeurd, ${t.verbeterd} verbeterd en ${t.verwijderd} weggegooid. De goede vragen staan meteen live.` + (t.open ? ` ${t.open} vragen wachten nog op controle.` : "");
+// maakt vragen en controleert ze daarna meteen; als de controle niet lukt, blijven de vragen voorstel
+async function metControle(owId, gemaakt){
+  try { const t = await controleerVoorstellen(owId); return `${gemaakt} ` + controleTekst(t); }
+  catch (e) { return `${gemaakt} De automatische controle lukte niet (${fout(e)}); de vragen staan als voorstel klaar. Probeer later ‘🔍 Laat controleren’.`; }
+}
+
 // Leest alle nog niet gelezen foto's van een quiz, 3 per keer, tot ze allemaal klaar zijn
 async function verwerkFotos(owId){
   const PER = 3; let toegevoegd = 0, fotos = 0, totaal = null, wake = null;
@@ -1121,7 +1140,7 @@ function fotoBlok(o){
     const url = new Map((urls||[]).map(u => [u.path, u.signedUrl]));
     inhoud.replaceChildren(
       open.length ? h("div",{class:"row"}, h("button",{class:"btn green",onclick:async()=>{
-          try { const res = await verwerkFotos(o.id); await laadAlles(); S.flash = `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s. Controleer ze hieronder.`; }
+          try { const res = await verwerkFotos(o.id); S.flash = await metControle(o.id, `${res.toegevoegd} nieuwe vragen gemaakt uit ${res.fotos} foto’s.`); await laadAlles(); }
           catch (e) { await laadAlles().catch(()=>{}); S.flash = "⚠️ " + fout(e) + " Probeer het straks nog eens; de foto’s blijven bewaard."; }
           viewOnderwerp(o.id);
         }}, `▶ Lees de ${open.length} resterende foto’s`), h("span",{class:"muted small"},"Gemini leest ze in porties van 3.")) : null,
@@ -1138,6 +1157,34 @@ function fotoBlok(o){
   })();
   return blok;
 }
+function gemeldBlok(gemeld, klaar){
+  if (!gemeld.length) return null;
+  const blok = h("div",{class:"card stack",style:"border-color:var(--bad)"}, h("h3",null,`⚠️ Gemeld door spelers (${gemeld.length})`), h("p",{class:"muted small"},"Laden…"));
+  (async () => {
+    const { data: m } = await sb.from("vraag_meldingen").select("vraag_id, reden, speler_id, aangemaakt").in("vraag_id", gemeld.map(q => q.id));
+    const perVraag = new Map(); for (const x of m || []) { if (!perVraag.has(x.vraag_id)) perVraag.set(x.vraag_id, []); perVraag.get(x.vraag_id).push(x); }
+    const actie = async (q, wat) => {
+      if (wat === "weg"){ if (!confirm("Deze vraag verwijderen?")) return; const { error } = await sb.from("vragen").delete().eq("id", q.id); if (error) return toast(fout(error)); }
+      else {
+        const { error } = await sb.from("vragen").update({ status: wat === "terug" ? "actief" : "voorstel" }).eq("id", q.id); if (error) return toast(fout(error));
+        await sb.from("vraag_meldingen").delete().eq("vraag_id", q.id);
+        if (wat === "nakijken"){ try { S.flash = controleTekst(await controleerVoorstellen(q.onderwerp_id)); } catch (e) { S.flash = "⚠️ " + fout(e); } }
+      }
+      await laadAlles(); toast(wat === "terug" ? "Vraag staat weer in de quiz." : wat === "weg" ? "Vraag verwijderd." : "Nagekeken."); klaar();
+    };
+    blok.replaceChildren(h("h3",null,`⚠️ Gemeld door spelers (${gemeld.length})`),
+      h("p",{class:"muted small"},"Deze vragen zijn uit de quiz gehaald omdat een speler meldde dat ze niet kloppen."),
+      ...gemeld.map(q => h("div",{class:"qitem"},
+        h("strong",null, (q.emoji||"") + " " + q.vraag),
+        h("div",{class:"small"}, "Goed volgens de vraag: ", h("strong",null, (q.type||"meerkeuze") === "meerkeuze" ? q.opties[q.juist] : q.opties.join(q.type === "volgorde" ? " " : " · "))),
+        ...(perVraag.get(q.id) || []).map(x => h("div",{class:"small muted"}, `${profiel(x.speler_id)?.naam || "Speler"}: ${x.reden || "(geen toelichting)"}`)),
+        h("div",{class:"row",style:"margin-top:6px"},
+          h("button",{class:"btn green",onclick:()=>actie(q,"nakijken")},"🔍 Laat Gemini nakijken"),
+          h("button",{class:"btn link",onclick:()=>actie(q,"terug")},"Klopt wel, terugzetten"),
+          h("button",{class:"btn link",onclick:()=>actie(q,"weg")},"Verwijderen")))));
+  })();
+  return blok;
+}
 function beheerOnderwerp(o, vragen, boek, extra){
   const voorstellen = vragen.filter(q => q.status === "voorstel");
   const actief = vragen.filter(q => q.status === "actief");
@@ -1145,7 +1192,7 @@ function beheerOnderwerp(o, vragen, boek, extra){
   async function maak(actie, tekst){
     msg.replaceChildren(h("p",{class:"note"},tekst + " Dit kan tot 2 minuten duren."));
     knoppen.querySelectorAll("button").forEach(b=>b.disabled=true);
-    try { const r = await roepFunctie({ actie, onderwerp_id:o.id }); await laadAlles(); S.flash = `${r.toegevoegd} nieuwe vragen gemaakt (${r.model}). Controleer ze hieronder.`; viewOnderwerp(o.id); }
+    try { const r = await roepFunctie({ actie, onderwerp_id:o.id }); S.flash = await metControle(o.id, `${r.toegevoegd} nieuwe vragen gemaakt.`); await laadAlles(); viewOnderwerp(o.id); }
     catch (e) { msg.replaceChildren(h("p",{class:"note err"},fout(e))); knoppen.querySelectorAll("button").forEach(b=>b.disabled=false); }
   }
   async function zet(ids, status){
@@ -1193,10 +1240,14 @@ function beheerOnderwerp(o, vragen, boek, extra){
     h("p",{class:"muted small"},`${boek} vragen uit het boek en ${extra} vragen buiten het boek staan live (varianten meegeteld). Elke knop hieronder kost één verzoek bij Gemini; je hebt er ongeveer 20 per dag. ‘Andere vraagstelling’ maakt nieuwe versies van de vragen die het vaakst gesteld zijn, zodat spelers de stof leren en niet het antwoord onthouden.`),
     knoppen, msg, fotoBlok(o), soortenBlok,
     voorstellen.length ? h("div",{class:"stack"},
-      h("div",{class:"row"}, h("h3",null,`Te controleren (${voorstellen.length})`),
-        h("button",{class:"btn green",style:"margin-left:auto",onclick:()=>{ if (confirm(`Alle ${voorstellen.length} voorstellen goedkeuren?`)) zet(voorstellen.map(q=>q.id),"actief"); }},"Alles goedkeuren")),
-      h("p",{class:"muted small"},"Lees elke vraag na. Verwijder wat niet klopt of niet bij de stof hoort; spelers zien alleen goedgekeurde vragen."),
+      h("div",{class:"row"}, h("h3",null,`Nog niet gecontroleerd (${voorstellen.length})`),
+        h("button",{class:"btn green",style:"margin-left:auto",onclick:async()=>{
+          try { S.flash = controleTekst(await controleerVoorstellen(o.id)); } catch (e) { S.flash = "⚠️ " + fout(e); }
+          await laadAlles(); viewOnderwerp(o.id); }},"🔍 Laat controleren"),
+        h("button",{class:"btn link",onclick:()=>{ if (confirm(`Alle ${voorstellen.length} vragen zonder controle goedkeuren?`)) zet(voorstellen.map(q=>q.id),"actief"); }},"Zonder controle goedkeuren")),
+      h("p",{class:"muted small"},"Normaal controleert Gemini nieuwe vragen meteen. Deze zijn nog niet gecontroleerd, bijvoorbeeld omdat de controle werd onderbroken of de daglimiet bereikt was."),
       h("div",null, voorstellen.map(q => vraagItem(q,true)))) : null,
+    gemeldBlok(vragen.filter(q => q.status === "gemeld"), () => viewOnderwerp(o.id)),
     h("details",null, h("summary",null,`Goedgekeurde vragen (${actief.length})`), h("div",null, actief.map(q => vraagItem(q,false)))),
     h("details",null, h("summary",null,"Lesstof die Gemini heeft gelezen"),
       h("p",{class:"muted small"},"Controleer of dit klopt met het boek. Alle boekvragen komen hieruit."),
@@ -1427,7 +1478,9 @@ function toonVraag(){
       q.soort==="extra" ? h("span",{class:"tag extra"},"🌐 Buiten het boek") : null,
       q.uitleg ? h("p",null,q.uitleg) : null,
       q.bron ? h("p",{class:"src small"}, (q.soort==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + q.bron + "”") : null,
-      h("button",{class:"btn green big",id:"verder",style:"margin-top:10px",onclick:verder}, r.i+1 < r.lijst.length ? "Volgende vraag" : "Bekijk je score"));
+      h("div",{class:"row",style:"margin-top:10px"},
+        h("button",{class:"btn green big",id:"verder",onclick:verder}, r.i+1 < r.lijst.length ? "Volgende vraag" : "Bekijk je score"),
+        echtBeheerder() ? null : meldKnop(q.id)));
     hud.replaceChildren(...hudKids());
     document.getElementById("verder")?.focus();
   }
@@ -1592,6 +1645,17 @@ async function klaar(){
       reviewLijst(r.antwoorden, { beoordelen: proef && S.aal === "aal2", voorstellen: r.voorstellen }))));
   if (record || levelOmhoog || nieuweMedailles.length) confetti();
 }
+// "Klopt niet?" voor spelers: de vraag gaat meteen uit de quiz tot de beheerder ernaar kijkt
+function meldKnop(vraagId){
+  const knop = h("button",{class:"btn link",type:"button",onclick:async()=>{
+    const reden = prompt("Wat klopt er niet aan deze vraag? (mag je leeg laten)");
+    if (reden === null) return;
+    const { error } = await sb.rpc("meld_vraag", { p_vraag: vraagId, p_reden: reden });
+    if (error) return toast(/function|schema cache/i.test(error.message) ? "Melden lukt nog niet. Vraag de beheerder om SQL-script 12." : fout(error));
+    knop.replaceWith(h("span",{class:"small muted"},"✔ Gemeld, bedankt! De vraag is uit de quiz gehaald tot de beheerder ernaar heeft gekeken."));
+  }},"⚠️ Klopt deze vraag niet?");
+  return knop;
+}
 // Beheerderstools onder een vraag in de terugblik van een proefronde
 function beoordeelBalk(a, voorstel){
   const balk = h("div",{class:"beoordeel"});
@@ -1626,6 +1690,7 @@ function reviewLijst(antw, { beoordelen = false, voorstellen = false } = {}){
            : h("div",null, a.wn ? "Je wist het niet. " : a.c < 0 ? "Je was te laat. " : h("span",null,"Jouw antwoord: ", h("s",null,a.o[a.c]), a.p < 0 ? ` (−${nl(-a.p)})` : "", " · "), "Goed was: ", h("strong",null,a.o[a.r])),
       a.u ? h("div",{class:"small",style:"margin-top:4px"},a.u) : null,
       a.b ? h("div",{class:"src small"},(a.s==="extra" ? "Hoort bij: " : "Uit de lesstof: ") + "“" + a.b + "”") : null,
+      !beoordelen && !echtBeheerder() && a.v ? h("div",null, meldKnop(a.v)) : null,
       beoordelen ? beoordeelBalk(a, voorstellen) : null)));
 }
 
@@ -1797,7 +1862,8 @@ async function beheerQuizzen(){
     h("div",null,h("button",{class:"btn green",onclick:()=>go("#beheer/vakken")},"Naar Vakken & icoontjes")));
   const { data: vr } = await sb.from("vragen").select("onderwerp_id, status");
   const tel = new Map();
-  for (const q of vr || []){ const x = tel.get(q.onderwerp_id) || { actief:0, voorstel:0 }; x[q.status]++; tel.set(q.onderwerp_id, x); }
+  for (const q of vr || []){ const x = tel.get(q.onderwerp_id) || { actief:0, voorstel:0, gemeld:0 }; x[q.status]++; tel.set(q.onderwerp_id, x); }
+  const { data: gemeldeVragen } = await sb.from("vragen").select("*").eq("status","gemeld");
   const status = (zichtbaar) => zichtbaar ? h("span",{class:"tag",style:"background:var(--good);border-color:var(--good);color:#04160A"},"✅ Vrijgegeven") : h("span",{class:"tag prop"},"🙈 Verborgen");
   const wissel = (tabel, x) => h("button",{class:"btn link",onclick:()=>zetZichtbaar(tabel, x.id, !x.zichtbaar)}, x.zichtbaar ? "Verbergen" : "Vrijgeven");
   const perVak = S.vakken.map(v => {
@@ -1819,7 +1885,8 @@ async function beheerQuizzen(){
           return h("div",{class:"qrow"},
             h("span",{style:"font-size:1.6rem"},o.emoji),
             h("div",{class:"info"}, h("strong",null,o.titel),
-              h("div",{class:"muted small"}, `${n.actief} vragen live`, n.voorstel ? h("span",{class:"tag prop",style:"margin-left:8px"},`${n.voorstel} te controleren`) : null)),
+              h("div",{class:"muted small"}, `${n.actief} vragen live`, n.voorstel ? h("span",{class:"tag prop",style:"margin-left:8px"},`${n.voorstel} nog niet gecontroleerd`) : null,
+                n.gemeld ? h("span",{class:"tag",style:"margin-left:8px;background:var(--bad);border-color:var(--bad);color:#fff"},`${n.gemeld} gemeld`) : null)),
             h("div",{class:"acties"}, status(o.zichtbaar), wissel("onderwerpen", o),
               h("button",{class:"btn link",onclick:()=>go("#fotos/"+o.id)},"+ Pagina’s"),
               h("button",{class:"btn",onclick:()=>go("#onderwerp/"+o.id)}, n.voorstel ? "Controleren" : "Openen"))); }))
@@ -1829,7 +1896,8 @@ async function beheerQuizzen(){
     h("div",{class:"row"},
       h("button",{class:"btn green big",onclick:()=>go("#quiz-nieuw")},"🧩 Nieuwe quiz"),
       h("button",{class:"btn big",onclick:()=>go("#eindtoets-nieuw")},"📝 Nieuwe eindtoets")),
-    h("p",{class:"muted small"},"Nieuwe quiz: kies het vak, geef een titel en upload de foto’s. Gemini maakt de vragen; daarna controleer je ze en geef je de quiz vrij. Een eindtoets combineert bestaande quizzen uit één vak."),
+    h("p",{class:"muted small"},"Nieuwe quiz: kies het vak, geef een titel en upload de foto’s. Gemini maakt de vragen en controleert ze daarna zelf; de goede vragen staan meteen klaar. Geef de quiz vrij als je klaar bent. Een eindtoets combineert bestaande quizzen uit één vak."),
+    gemeldBlok(gemeldeVragen || [], () => viewBeheer("quizzen")),
     ...perVak);
 }
 
