@@ -73,7 +73,15 @@ input:focus,select:focus,textarea:focus{border-color:var(--cyan);outline:none}
 textarea{min-height:80px;resize:vertical}
 
 /* header */
-.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 -16px 20px;padding:8px 16px;flex-wrap:nowrap;
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:rgba(13,17,27,.9);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:rgba(13,17,27,.95)}
+.top .links{display:flex;align-items:center;gap:8px;min-width:0}
+.terug{width:42px;height:42px;flex:none;border:0;clip-path:var(--cut);background:var(--card2);box-shadow:inset 0 0 0 2px var(--line);color:var(--text);font-size:1.3rem;font-weight:700;cursor:pointer}
+.top .nav{flex-wrap:nowrap}
+@media (max-width:600px){ .nav .lbl{display:none} .nav .btn{padding:6px 10px;min-height:42px} .nav .speler > span:last-child{display:none} .logo span{font-size:1.3rem} .logo img{width:38px;height:38px} }
+@media (max-width:440px){ .logo span{display:none} }
+.logo{min-width:0}
 .logo{display:flex;align-items:center;gap:10px;background:none;border:0;padding:0;cursor:pointer;color:var(--text)}
 .logo img{width:46px;height:46px;display:block}
 .logo span{font-family:var(--display);font-weight:700;font-size:1.6rem;letter-spacing:.02em}
@@ -121,6 +129,15 @@ textarea{min-height:80px;resize:vertical}
 .topic:hover{border-color:var(--hot);transform:translateY(-2px)}
 .topic .emo{font-size:2.2rem;line-height:1}
 .topic .best{margin-top:auto;font-family:var(--display);font-weight:700;color:var(--orange)}
+.qlijst{display:flex;flex-direction:column;gap:8px}
+.qregel{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;background:linear-gradient(180deg,var(--card2),var(--card));border:2px solid var(--line);border-radius:10px;cursor:pointer;color:var(--text);transition:border-color .15s,transform .1s}
+.qregel:hover{border-color:var(--cyan);transform:translateX(2px)}
+.qregel.toets{border-color:var(--hot);box-shadow:inset 4px 0 0 var(--hot)}
+.qregel .emo{font-size:1.8rem;line-height:1;flex:none}
+.qregel .info{flex:1;min-width:0}
+.qregel .info strong{display:block;font-family:var(--display);font-size:1.15rem;line-height:1.2}
+.qregel .rechts{flex:none;text-align:right;font-family:var(--display);font-weight:700;color:var(--orange);font-size:.95rem}
+.qregel .pijl{flex:none;color:var(--muted);font-size:1.4rem}
 .empty{text-align:center;padding:30px 20px}.empty .emo{font-size:3rem}
 
 /* moeilijkheid */
@@ -161,7 +178,7 @@ summary{cursor:pointer;font-weight:600}
 .auth-tabs{display:flex;border:2px solid var(--line);border-radius:10px;overflow:hidden}
 .auth-tabs button{flex:1;border:0;background:#0F1420;padding:10px;font-weight:600;cursor:pointer}
 .auth-tabs button[aria-selected="true"]{background:var(--hot);color:#160A02}
-.spelerbalk{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;
+.spelerbalk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;
   background:var(--cyan);color:#04161A;padding:8px 14px;border-radius:10px;margin-bottom:14px;font-weight:600}
 .spelerbalk .btn{min-height:38px;padding:4px 12px;font-size:.95rem;background:#04161A;color:#fff;box-shadow:none}
 .beoordeel{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;background:#0F1420}
@@ -269,7 +286,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-13.1";
+const VERSIE = "2026-11-13.2";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -574,11 +591,13 @@ const beste = (spelerId, soort, id, diff) => S.rondes.filter(r => r.speler_id ==
 function header(){
   if (!S.user) return h("div",{class:"top"}, logo());
   const spelend = S.ronde && location.hash === "#spelen";
-  return h("div",{class:"top"}, logo(),
+  const thuis = !location.hash || location.hash === "#";
+  const terug = !thuis && !spelend ? h("button",{class:"terug","aria-label":"Terug",title:"Terug",onclick:()=>{ if (S.stappen > 1){ S.stappen -= 2; history.back(); } else { S.stappen = 0; go("#"); } }},"←") : null;
+  return h("div",{class:"top"}, h("div",{class:"links"}, terug, logo()),
     spelend ? h("button",{class:"btn link",onclick:()=>{ if (confirm("Stoppen met deze ronde? Je score wordt niet opgeslagen.")) { S.ronde = null; go(S.terug); } }},"Stoppen")
     : h("nav",{class:"nav"},
-        h("button",{class:"btn",onclick:()=>go("#scorebord")},"🏆 Scorebord"),
-        isBeheerderRol() ? h("button",{class:"btn",onclick:()=>go("#beheer")}, isBeheerder() ? "⚙️ Beheer" : "🔒 Beheer") : null,
+        h("button",{class:"btn",onclick:()=>go("#scorebord"),"aria-label":"Scorebord"},"🏆", h("span",{class:"lbl"}," Scorebord")),
+        isBeheerderRol() ? h("button",{class:"btn",onclick:()=>go("#beheer"),"aria-label":"Beheer"}, isBeheerder() ? "⚙️" : "🔒", h("span",{class:"lbl"}," Beheer")) : null,
         h("button",{class:"btn",onclick:()=>go("#profiel"),"aria-label":"Mijn profiel"}, spelerNaam(S.profiel, 26))));
 }
 const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Naar beginscherm"}, h("img",{src:"logo-v3.svg",alt:""}), h("span",null,"Quizmaster"));
@@ -616,7 +635,8 @@ async function route(){
     }
   } catch (e) { render(h("p",{class:"note err"},"Er ging iets mis: " + fout(e))); }
 }
-window.addEventListener("hashchange", route);
+S.stappen = 0;
+window.addEventListener("hashchange", () => { S.stappen++; route(); });
 
 /* ============ inloggen ============ */
 function viewLogin(modus = "login"){
@@ -725,7 +745,7 @@ function beheerStrip(){
 function viewHome(){
   const flash = S.flash; S.flash = null;
   const tegels = S.vakken.map(v => {
-    const n = S.onderwerpen.filter(o => o.vak_id === v.id && (o.zichtbaar || isBeheerder())).length;
+    const n = S.onderwerpen.filter(o => o.vak_id === v.id && (isBeheerder() || (o.zichtbaar && o.aantal > 0))).length;
     return h("button",{class:"tile",style:`--c:${v.kleur}`,onclick:()=>go("#vak/"+v.id)},
       vakIcoon(v), h("h3",null,v.naam), h("div",{class:"small"}, n === 1 ? "1 quiz" : `${n} quizzen`));
   });
@@ -889,35 +909,32 @@ async function maakIcoon(file){
 /* ============ vak: onderwerpen ============ */
 function viewVak(id){
   const v = vak(id); if (!v) return go("#");
-  const lijst = S.onderwerpen.filter(o => o.vak_id === v.id && (o.zichtbaar || isBeheerder()));
-  const kaarten = lijst.map(o => {
-    const b = beste(S.user.id, "onderwerp", o.id);
-    return h("button",{class:"card topic",onclick:()=>go("#onderwerp/"+o.id)},
-      h("div",{class:"emo","aria-hidden":"true"},o.emoji), h("h3",null,o.titel),
-      !o.zichtbaar ? h("div",null,h("span",{class:"tag prop"},"🙈 Nog niet vrijgegeven")) : null,
-      h("div",{class:"muted small"}, `${o.aantal} vragen · ${o.niveau}`),
-      h("div",{class:"best"}, b ? `🏆 ${nl(b)}` : "Nog niet gespeeld"));
-  });
-  const toetsen = S.toetsen.filter(t => t.vak_id === v.id && (t.zichtbaar || isBeheerder()));
-  const toetsKaarten = toetsen.map(t => {
-    const b = beste(S.user.id, "toets", t.id), n = toetsOnderwerpen(t.id).length;
-    return h("button",{class:"card topic",style:"border-color:var(--hot)",onclick:()=>go("#toets/"+t.id)},
-      h("div",{class:"emo","aria-hidden":"true"},t.emoji), h("h3",null,t.titel),
-      !t.zichtbaar ? h("div",null,h("span",{class:"tag prop"},"🙈 Nog niet vrijgegeven")) : null,
-      h("div",{class:"muted small"}, [`${n} ${n===1?"quiz":"quizzen"}`, toetsDatumTekst(t.datum)].filter(Boolean).join(" · ")),
-      h("div",{class:"best"}, b ? `🏆 ${nl(b)}` : "Nog niet geoefend"));
-  });
+  const nieuwsteEerst = (a,b) => new Date(b.aangemaakt) - new Date(a.aangemaakt);
+  // spelers zien alleen vrijgegeven quizzen waar al vragen in zitten
+  const lijst = S.onderwerpen.filter(o => o.vak_id === v.id && (isBeheerder() || (o.zichtbaar && o.aantal > 0))).sort(nieuwsteEerst);
+  const toetsen = S.toetsen.filter(t => t.vak_id === v.id && (t.zichtbaar || isBeheerder())).sort(nieuwsteEerst);
+  const regel = (soort, x, meta, label) => {
+    const b = beste(S.user.id, soort, x.id);
+    return h("button",{class:"qregel" + (soort === "toets" ? " toets" : ""),onclick:()=>go(`#${soort}/${x.id}`)},
+      h("span",{class:"emo","aria-hidden":"true"},x.emoji),
+      h("span",{class:"info"}, h("strong",null,x.titel),
+        h("span",{class:"muted small"}, meta),
+        !x.zichtbaar ? h("span",{class:"tag prop",style:"margin-left:6px"},"🙈 Verborgen") : null),
+      h("span",{class:"rechts"}, b ? `🏆 ${nl(b)}` : label),
+      h("span",{class:"pijl","aria-hidden":"true"},"›"));
+  };
   render(h("div",{class:"stack"},
     h("div",{class:"row"}, h("div",{class:"vakbadge",style:`background:${v.kleur}`}, v.icoon ? h("img",{src:icoonUrl(v.icoon),alt:""}) : v.emoji), h("h2",null,v.naam),
       isBeheerder() ? h("button",{class:"btn link",style:"margin-left:auto",onclick:()=>go("#vak-bewerken/"+v.id)},"Vak bewerken") : null),
-    isBeheerder() ? h("div",{class:"row"}, h("button",{class:"btn green big",onclick:()=>go("#quiz-nieuw/"+v.id)},"🧩 Nieuwe quiz"),
-      h("button",{class:"btn big",onclick:()=>go("#eindtoets-nieuw/"+v.id)},"📝 Nieuwe eindtoets")) : null,
-    toetsKaarten.length ? h("h3",null,"📝 Eindtoetsen") : null,
-    toetsKaarten.length ? h("div",{class:"grid"},toetsKaarten) : null,
-    toetsKaarten.length && lijst.length ? h("h3",null,"🧩 Quizzen") : null,
-    lijst.length ? h("div",{class:"grid"},kaarten)
+    isBeheerder() ? h("div",{class:"row"}, h("button",{class:"btn green",onclick:()=>go("#quiz-nieuw/"+v.id)},"🧩 Nieuwe quiz"),
+      h("button",{class:"btn",onclick:()=>go("#eindtoets-nieuw/"+v.id)},"📝 Nieuwe eindtoets")) : null,
+    toetsen.length ? h("h3",null,"📝 Eindtoetsen") : null,
+    toetsen.length ? h("div",{class:"qlijst"}, toetsen.map(t => { const n = toetsOnderwerpen(t.id).length;
+      return regel("toets", t, [`${n} ${n===1?"quiz":"quizzen"}`, toetsDatumTekst(t.datum)].filter(Boolean).join(" · "), "Oefenen"); })) : null,
+    toetsen.length && lijst.length ? h("h3",null,"🧩 Quizzen") : null,
+    lijst.length ? h("div",{class:"qlijst"}, lijst.map(o => regel("onderwerp", o, `${o.aantal} vragen · ${o.niveau}`, "Nieuw")))
       : h("div",{class:"card empty"}, h("div",{class:"emo"},"📖"), h("h3",null,"Nog geen quizzen"),
-          h("p",{class:"muted"}, isBeheerder() ? "Maak een quiz met foto’s van een hoofdstuk om te beginnen." : "De beheerder heeft hier nog niets klaargezet."))));
+          h("p",{class:"muted"}, isBeheerder() ? "Maak een quiz met foto’s van een hoofdstuk om te beginnen." : "Hier staan nog geen quizzen klaar."))));
 }
 
 /* ============ nieuw onderwerp / foto’s toevoegen (beheer) ============ */
