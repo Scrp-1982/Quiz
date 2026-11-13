@@ -129,6 +129,21 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .topic:hover{border-color:var(--hot);transform:translateY(-2px)}
 .topic .emo{font-size:2.2rem;line-height:1}
 .topic .best{margin-top:auto;font-family:var(--display);font-weight:700;color:var(--orange)}
+details.klap{border:2px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--card2),var(--card));padding:0}
+details.klap + details.klap{margin-top:8px}
+details.klap > summary{list-style:none;display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer}
+details.klap > summary::-webkit-details-marker{display:none}
+details.klap > summary::after{content:"▸";margin-left:auto;color:var(--muted);font-size:1.1rem;transition:transform .15s;flex:none}
+details.klap[open] > summary::after{transform:rotate(90deg)}
+details.klap > summary .titel{font-family:var(--display);font-weight:700;font-size:1.15rem}
+details.klap > summary .sub{color:var(--muted);font-size:.85rem}
+details.klap > .binnen{padding:4px 14px 14px;border-top:1px solid var(--line)}
+details.klap.attentie{border-color:var(--orange)}
+.brij{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
+.brij:first-child{border-top:0}
+.brij .info{flex:1;min-width:180px}
+.brij .acties{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.brij.toets{box-shadow:inset 3px 0 0 var(--hot);padding-left:10px}
 .qlijst{display:flex;flex-direction:column;gap:8px}
 .qregel{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;background:linear-gradient(180deg,var(--card2),var(--card));border:2px solid var(--line);border-radius:10px;cursor:pointer;color:var(--text);transition:border-color .15s,transform .1s}
 .qregel:hover{border-color:var(--cyan);transform:translateX(2px)}
@@ -286,7 +301,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-13.2";
+const VERSIE = "2026-11-13.3";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -457,7 +472,7 @@ function laden(titel, sub){ $app.replaceChildren(header(), h("div",{class:"card 
 function fout(e){ console.error(e); return (e && (e.message || e.error_description)) || String(e); }
 
 /* ============ status ============ */
-const S = { pauzes:[], user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
+const S = { open:new Set(), pauzes:[], user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
 // Een beheerder kan de app bekijken zoals een speler hem ziet (S.alsSpeler)
 S.alsSpeler = sessionStorage.getItem("qm:alsSpeler") === "1";
 const echtBeheerder = () => S.profiel?.rol === "beheerder";
@@ -1880,6 +1895,7 @@ function viewSpeler(id){
 /* ============ profiel ============ */
 function viewProfiel(){
   let avatar = S.profiel.avatar;
+  const magFoto = S.profiel.foto_toegestaan || echtBeheerder();
   const naam = h("input",{type:"text",id:"pn",maxlength:"36",value:S.profiel.naam});
   const grid = h("div",{class:"avatars"});
   const teken = () => grid.replaceChildren(...AVATARS.map(a => h("button",{"aria-pressed":String(a===avatar),"aria-label":"Avatar "+a,onclick:()=>{avatar=a;teken();}},a)));
@@ -1895,47 +1911,53 @@ function viewProfiel(){
       if (error) throw error;
       const oud = S.profiel.foto;
       const { error: e2 } = await sb.from("profielen").update({ foto: pad }).eq("id", S.user.id);
-      if (e2) throw e2;
+      if (e2){ await sb.storage.from("avatars").remove([pad]); throw e2; }
       if (oud) await sb.storage.from("avatars").remove([oud]);
       await laadAlles(); toast("Foto opgeslagen."); viewProfiel();
-    } catch (err) { fotoMsg.replaceChildren(h("p",{class:"note err"},fout(err))); }
+    } catch (err) { fotoMsg.replaceChildren(h("p",{class:"note err"}, /geen profielfoto/i.test(err.message||"") ? "Je mag (nog) geen profielfoto instellen. Vraag het aan de beheerder." : fout(err))); }
   }});
-  render(h("div",{class:"stack",style:"max-width:560px"},
-    h("h2",null,"Mijn profiel"),
-    h("div",{class:"card stack"},
-      h("h3",null,"Profielfoto"),
-      h("div",{class:"row"}, poppetje(S.profiel, 96),
-        h("div",{class:"stack"},
-          h("button",{class:"btn blue",onclick:()=>kies.click()}, S.profiel.foto ? "📷 Andere foto" : "📷 Foto kiezen"),
-          S.profiel.foto ? h("button",{class:"btn link",onclick:()=>verwijderFoto(S.profiel)},"Foto weghalen") : null)),
-      kies, fotoMsg,
-      h("p",{class:"muted small"},"Je foto staat met je app-naam op het scorebord. Heb je geen foto, dan zie je je emoji.")),
-    h("div",{class:"card stack"},
-      h("div",null,h("label",{class:"f",for:"pn"},"App-naam (zo sta je op het scorebord)"),naam),
-      h("div",null,h("span",{style:"font-weight:600;display:block;margin-bottom:6px"},"Emoji (als je geen foto hebt)"),grid),
-      h("button",{class:"btn green",onclick:async()=>{
-        const n = naam.value.trim(); if (!n) return toast("Vul een app-naam in.");
-        const { error } = await sb.from("profielen").update({ naam:n, avatar }).eq("id", S.user.id);
-        if (error) return toast(/duplicate|unique/i.test(error.message) ? "Die app-naam is al in gebruik. Kies een andere." : fout(error));
-        await laadAlles(); toast("Opgeslagen."); viewProfiel();
-      }},"Opslaan"),
-      h("p",{class:"muted small"},"De beheerder kan je app-naam aanpassen als dat nodig is.")),
-    mfaKaart(),
-    h("div",{class:"row"}, h("button",{class:"btn",onclick:()=>go("#wachtwoord")},"🔑 Wachtwoord wijzigen"),
-      h("button",{class:"btn",onclick:async()=>{ await sb.auth.signOut(); }},"Uitloggen"))));
+  render(h("div",{class:"stack",style:"max-width:600px"},
+    h("div",{class:"row"}, poppetje(S.profiel, 64), h("div",null, h("h2",null,S.profiel.naam), h("span",{class:"muted small"},"Mijn profiel"))),
+    h("div",null,
+      klap("profiel:naam", [h("span",null, h("span",{class:"titel"},"✏️ App-naam en emoji"), h("br"), h("span",{class:"sub"}, `${S.profiel.naam} · ${S.profiel.avatar}`))],
+        h("div",{class:"stack",style:"padding-top:10px"},
+          h("div",null,h("label",{class:"f",for:"pn"},"App-naam (zo sta je op het scorebord)"),naam),
+          h("div",null,h("span",{style:"font-weight:600;display:block;margin-bottom:6px"}, magFoto ? "Emoji (als je geen foto hebt)" : "Emoji"),grid),
+          h("div",null,h("button",{class:"btn green",onclick:async()=>{
+            const n = naam.value.trim(); if (!n) return toast("Vul een app-naam in.");
+            const { error } = await sb.from("profielen").update({ naam:n, avatar }).eq("id", S.user.id);
+            if (error) return toast(/duplicate|unique/i.test(error.message) ? "Die app-naam is al in gebruik. Kies een andere." : fout(error));
+            await laadAlles(); toast("Opgeslagen."); viewProfiel();
+          }},"Opslaan")),
+          h("p",{class:"muted small"},"De beheerder kan je app-naam aanpassen als dat nodig is."))),
+      klap("profiel:foto", [h("span",null, h("span",{class:"titel"},"📷 Profielfoto"), h("br"), h("span",{class:"sub"}, !magFoto ? "Nog niet toegestaan" : S.profiel.foto ? "Ingesteld" : "Geen foto"))],
+        magFoto ? h("div",{class:"stack",style:"padding-top:10px"},
+          h("div",{class:"row"}, poppetje(S.profiel, 96),
+            h("div",{class:"stack"},
+              h("button",{class:"btn blue",onclick:()=>kies.click()}, S.profiel.foto ? "📷 Andere foto" : "📷 Foto kiezen"),
+              S.profiel.foto ? h("button",{class:"btn link",onclick:()=>verwijderFoto(S.profiel)},"Foto weghalen") : null)),
+          kies, fotoMsg,
+          h("p",{class:"muted small"},"Je foto staat met je app-naam op het scorebord."))
+        : h("p",{class:"muted",style:"padding-top:10px"},"Een profielfoto kan pas als de beheerder dat heeft toegestaan. Tot die tijd sta je met je emoji op het scorebord.")),
+      mfaKaart(),
+      klap("profiel:ww", [h("span",null, h("span",{class:"titel"},"🔑 Wachtwoord"), h("br"), h("span",{class:"sub"},"Wijzigen"))],
+        h("div",{style:"padding-top:10px"}, h("button",{class:"btn",onclick:()=>go("#wachtwoord")},"🔑 Wachtwoord wijzigen")))),
+    h("button",{class:"btn",onclick:async()=>{ await sb.auth.signOut(); }},"Uitloggen")));
 }
 function mfaKaart(){
-  const inhoud = h("div",{class:"stack"}, h("p",{class:"muted"},"Laden…"));
+  const inhoud = h("div",{class:"stack",style:"padding-top:10px"}, h("p",{class:"muted"},"Laden…"));
+  const sub = h("span",{class:"sub"},"");
   sb.auth.mfa.listFactors().then(async ({ data }) => {
     const factoren = data?.totp || [];
+    sub.textContent = factoren.length ? "Staat aan" : "Staat uit";
     if (!factoren.length){
       inhoud.replaceChildren(
-        h("p",null,"Staat ", h("strong",null,"uit"), ". Met tweestapsverificatie vul je bij het inloggen naast je wachtwoord ook een code in uit een app zoals Google Authenticator. Dan kan niemand anders inloggen, ook niet als hij je wachtwoord weet."),
+        h("p",null,"Met tweestapsverificatie vul je bij het inloggen naast je wachtwoord ook een code in uit een app zoals Google Authenticator. Dan kan niemand anders inloggen, ook niet als hij je wachtwoord weet."),
         echtBeheerder() ? h("p",{class:"note warn"},"Voor beheerders is dit verplicht om Beheer te kunnen gebruiken.") : null,
         h("div",null,h("button",{class:"btn green",onclick:()=>viewMfa("#profiel")},"🔐 Instellen")));
     } else {
       inhoud.replaceChildren(
-        h("p",null,"Staat ", h("strong",{style:"color:var(--good)"},"aan"), ". Bij het inloggen vul je naast je wachtwoord een code in uit je authenticator-app."),
+        h("p",null,"Bij het inloggen vul je naast je wachtwoord een code in uit je authenticator-app."),
         echtBeheerder() ? h("p",{class:"muted small"},"Verplicht voor beheerders, dus uitzetten kan hier niet.")
         : h("div",null,h("button",{class:"btn",onclick:async()=>{
             if (!confirm("Tweestapsverificatie uitzetten? Daarna log je weer alleen met je wachtwoord in.")) return;
@@ -1944,7 +1966,7 @@ function mfaKaart(){
           }},"Uitzetten")));
     }
   });
-  return h("div",{class:"card stack"}, h("h3",null,"🔐 Tweestapsverificatie"), inhoud);
+  return klap("profiel:mfa", [h("span",null, h("span",{class:"titel"},"🔐 Tweestapsverificatie"), h("br"), sub)], inhoud);
 }
 // Vierkante profielfoto van 320×320 (midden van de foto)
 async function vierkanteFoto(file){
@@ -1958,7 +1980,7 @@ async function vierkanteFoto(file){
 async function viewBeheer(tab = "quizzen"){
   if (!isBeheerderRol()) return go("#");
   if (!isBeheerder()) return viewMfa("#beheer/" + tab);
-  const TABS = [["quizzen","🧩 Quizzen"],["vakken","📚 Vakken & icoontjes"],["gebruikers","👥 Gebruikers"]];
+  const TABS = [["quizzen","🧩 Quizzen"],["vakken","📚 Vakken"],["gebruikers","👥 Gebruikers"]];
   if (!TABS.some(t => t[0] === tab)) tab = "quizzen";
   const tabs = h("div",{class:"btabs",role:"tablist"}, TABS.map(([k,t]) => h("button",{role:"tab","aria-selected":String(k===tab),onclick:()=>go("#beheer/"+k)},t)));
   laden("Laden…");
@@ -1970,55 +1992,68 @@ async function viewBeheer(tab = "quizzen"){
 const vakBadge = (v, maat = 40) => h("div",{class:"vakbadge",style:`background:${v.kleur};width:${maat}px;height:${maat}px;font-size:${Math.round(maat*.55)}px`},
   v.icoon ? h("img",{src:icoonUrl(v.icoon),alt:"",style:`max-width:${Math.round(maat*.72)}px;max-height:${Math.round(maat*.8)}px`}) : v.emoji);
 
+// Uitklapblok dat onthoudt of het open stond, ook als de pagina opnieuw wordt getekend
+function klap(sleutel, kop, inhoud, { attentie = false, standaardOpen = false } = {}){
+  const d = h("details",{class:"klap" + (attentie ? " attentie" : "")}, h("summary",null, kop), h("div",{class:"binnen"}, inhoud));
+  d.open = S.open.has(sleutel) || (standaardOpen && !S.open.has("dicht:" + sleutel));
+  d.addEventListener("toggle", () => { if (d.open){ S.open.add(sleutel); S.open.delete("dicht:" + sleutel); } else { S.open.delete(sleutel); S.open.add("dicht:" + sleutel); } });
+  return d;
+}
+
 /* --- tab Quizzen --- */
 async function beheerQuizzen(){
   if (!S.vakken.length) return h("div",{class:"card stack"}, h("p",null,"Er zijn nog geen vakken. Maak eerst een vak aan."),
-    h("div",null,h("button",{class:"btn green",onclick:()=>go("#beheer/vakken")},"Naar Vakken & icoontjes")));
+    h("div",null,h("button",{class:"btn green",onclick:()=>go("#beheer/vakken")},"Naar Vakken")));
   const { data: vr } = await sb.from("vragen").select("onderwerp_id, status");
   const tel = new Map();
   for (const q of vr || []){ const x = tel.get(q.onderwerp_id) || { actief:0, voorstel:0, gemeld:0 }; x[q.status]++; tel.set(q.onderwerp_id, x); }
   const { data: gemeldeVragen } = await sb.from("vragen").select("*").eq("status","gemeld");
-  const status = (zichtbaar) => zichtbaar ? h("span",{class:"tag",style:"background:var(--good);border-color:var(--good);color:#04160A"},"✅ Vrijgegeven") : h("span",{class:"tag prop"},"🙈 Verborgen");
+  const nieuwsteEerst = (a,b) => new Date(b.aangemaakt) - new Date(a.aangemaakt);
+  const status = z => z ? h("span",{class:"tag",style:"background:var(--good);border-color:var(--good);color:#04160A"},"✅ Live") : h("span",{class:"tag prop"},"🙈 Verborgen");
   const wissel = (tabel, x) => h("button",{class:"btn link",onclick:()=>zetZichtbaar(tabel, x.id, !x.zichtbaar)}, x.zichtbaar ? "Verbergen" : "Vrijgeven");
-  const perVak = S.vakken.map(v => {
-    const qs = S.onderwerpen.filter(o => o.vak_id === v.id);
-    const ts = S.toetsen.filter(t => t.vak_id === v.id);
-    return h("div",{class:"card"},
-      h("div",{class:"vakkop"}, vakBadge(v), h("h3",{style:"flex:1"},v.naam),
-        h("button",{class:"btn link",onclick:()=>go("#quiz-nieuw/"+v.id)},"+ Quiz"),
-        h("button",{class:"btn link",onclick:()=>go("#eindtoets-nieuw/"+v.id)},"+ Eindtoets")),
-      qs.length || ts.length ? h("div",{style:"margin-top:8px"},
-        ...ts.map(t => h("div",{class:"qrow"},
-          h("span",{style:"font-size:1.6rem"},t.emoji),
-          h("div",{class:"info"}, h("strong",null,t.titel), " ", h("span",{class:"tag",style:"background:var(--hot);border-color:var(--hot);color:#160A02"},"Eindtoets"),
-            h("div",{class:"muted small"}, [`${toetsOnderwerpen(t.id).length} quizzen`, t.datum ? new Date(t.datum+"T00:00:00").toLocaleDateString("nl-NL",{day:"numeric",month:"short"}) : null].filter(Boolean).join(" · "))),
-          h("div",{class:"acties"}, status(t.zichtbaar), wissel("toetsen", t),
-            h("button",{class:"btn link",onclick:()=>go("#toets-bewerken/"+t.id)},"Bewerken"),
-            h("button",{class:"btn",onclick:()=>go("#toets/"+t.id)},"Openen")))),
-        ...qs.map(o => { const n = tel.get(o.id) || { actief:0, voorstel:0 };
-          return h("div",{class:"qrow"},
-            h("span",{style:"font-size:1.6rem"},o.emoji),
-            h("div",{class:"info"}, h("strong",null,o.titel),
-              h("div",{class:"muted small"}, `${n.actief} vragen live`, n.voorstel ? h("span",{class:"tag prop",style:"margin-left:8px"},`${n.voorstel} nog niet gecontroleerd`) : null,
-                n.gemeld ? h("span",{class:"tag",style:"margin-left:8px;background:var(--bad);border-color:var(--bad);color:#fff"},`${n.gemeld} gemeld`) : null)),
-            h("div",{class:"acties"}, status(o.zichtbaar), wissel("onderwerpen", o),
-              h("button",{class:"btn link",onclick:()=>go("#fotos/"+o.id)},"+ Pagina’s"),
-              h("button",{class:"btn",onclick:()=>go("#onderwerp/"+o.id)}, n.voorstel ? "Controleren" : "Openen"))); }))
-      : h("p",{class:"muted small",style:"margin-top:8px"},"Nog geen quizzen in dit vak."));
+  const controleer = async o => { try { S.flash = controleTekst(await controleerVoorstellen(o.id)); } catch (e) { S.flash = "⚠️ " + fout(e); } await laadAlles(); viewBeheer("quizzen"); };
+  const vakRijen = S.vakken.map(v => {
+    const qs = S.onderwerpen.filter(o => o.vak_id === v.id).sort(nieuwsteEerst);
+    const ts = S.toetsen.filter(t => t.vak_id === v.id).sort(nieuwsteEerst);
+    const som = qs.reduce((t,o) => { const n = tel.get(o.id) || {}; t.v += n.voorstel||0; t.g += n.gemeld||0; return t; }, { v:0, g:0 });
+    const live = qs.filter(o => o.zichtbaar).length;
+    const kop = [vakBadge(v, 36),
+      h("span",null, h("span",{class:"titel"},v.naam), h("br"), h("span",{class:"sub"}, `${qs.length} ${qs.length===1?"quiz":"quizzen"} · ${live} live` + (ts.length ? ` · ${ts.length} ${ts.length===1?"eindtoets":"eindtoetsen"}` : ""))),
+      som.v ? h("span",{class:"tag prop"},`${som.v} niet gecontroleerd`) : null,
+      som.g ? h("span",{class:"tag",style:"background:var(--bad);border-color:var(--bad);color:#fff"},`${som.g} gemeld`) : null];
+    const inhoud = [
+      h("div",{class:"row",style:"padding:10px 0"},
+        h("button",{class:"btn green",onclick:()=>go("#quiz-nieuw/"+v.id)},"🧩 Nieuwe quiz"),
+        h("button",{class:"btn",onclick:()=>go("#eindtoets-nieuw/"+v.id)},"📝 Nieuwe eindtoets")),
+      ...ts.map(t => h("div",{class:"brij toets"},
+        h("span",{style:"font-size:1.5rem"},t.emoji),
+        h("div",{class:"info"}, h("strong",null,t.titel), " ", status(t.zichtbaar),
+          h("div",{class:"muted small"}, ["Eindtoets", `${toetsOnderwerpen(t.id).length} quizzen`, t.datum ? new Date(t.datum+"T00:00:00").toLocaleDateString("nl-NL",{day:"numeric",month:"short"}) : null].filter(Boolean).join(" · "))),
+        h("div",{class:"acties"}, wissel("toetsen", t),
+          h("button",{class:"btn link",onclick:()=>go("#toets-bewerken/"+t.id)},"Bewerken"),
+          h("button",{class:"btn",onclick:()=>go("#toets/"+t.id)},"Openen")))),
+      ...qs.map(o => { const n = tel.get(o.id) || { actief:0, voorstel:0, gemeld:0 };
+        return h("div",{class:"brij"},
+          h("span",{style:"font-size:1.5rem"},o.emoji),
+          h("div",{class:"info"}, h("strong",null,o.titel), " ", status(o.zichtbaar),
+            h("div",{class:"muted small"}, `${n.actief} vragen live`,
+              n.voorstel ? h("span",{class:"tag prop",style:"margin-left:6px"},`${n.voorstel} niet gecontroleerd`) : null,
+              n.gemeld ? h("span",{class:"tag",style:"margin-left:6px;background:var(--bad);border-color:var(--bad);color:#fff"},`${n.gemeld} gemeld`) : null)),
+          h("div",{class:"acties"}, wissel("onderwerpen", o),
+            n.voorstel ? h("button",{class:"btn link",onclick:()=>controleer(o)},"Controleren") : null,
+            h("button",{class:"btn link",onclick:()=>go("#fotos/"+o.id)},"+ Pagina’s"),
+            h("button",{class:"btn",onclick:()=>go("#onderwerp/"+o.id)},"Openen"))); }),
+      !qs.length && !ts.length ? h("p",{class:"muted small"},"Nog geen quizzen in dit vak.") : null];
+    return klap("vak:" + v.id, kop, inhoud, { attentie: !!(som.v || som.g) });
   });
   return h("div",{class:"stack"},
-    h("div",{class:"row"},
-      h("button",{class:"btn green big",onclick:()=>go("#quiz-nieuw")},"🧩 Nieuwe quiz"),
-      h("button",{class:"btn big",onclick:()=>go("#eindtoets-nieuw")},"📝 Nieuwe eindtoets")),
-    h("p",{class:"muted small"},"Nieuwe quiz: kies het vak, geef een titel en upload de foto’s. Gemini maakt de vragen en controleert ze daarna zelf; de goede vragen staan meteen klaar. Geef de quiz vrij als je klaar bent. Een eindtoets combineert bestaande quizzen uit één vak."),
     gemeldBlok(gemeldeVragen || [], () => viewBeheer("quizzen")),
-    ...perVak);
+    h("div",null, vakRijen),
+    h("p",{class:"muted small"},"Tik op een vak om de quizzen en eindtoetsen te zien. Gemini controleert nieuwe vragen zelf; ‘Controleren’ verschijnt alleen als dat nog niet gelukt is."));
 }
 
 /* --- tab Vakken & icoontjes --- */
 async function beheerVakken(){
-  const { data: iconenLijst } = await sb.storage.from("iconen").list("", { limit:200, sortBy:{ column:"name", order:"asc" } });
-  const plaatjes = (iconenLijst||[]).filter(x => x.name?.endsWith(".png")).map(x => x.name);
   return h("div",{class:"stack"},
     h("div",{class:"card stack"},
       h("div",{class:"row"}, h("h3",{style:"flex:1"},"Vakken"), h("button",{class:"btn green",onclick:()=>go("#vak-nieuw")},"➕ Nieuw vak")),
@@ -2029,15 +2064,7 @@ async function beheerVakken(){
         h("td",{class:"num"}, h("button",{class:"btn link",onclick:()=>go("#vak-bewerken/"+v.id)},"Bewerken"),
           h("button",{class:"btn link",onclick:()=>verwijderVak(v, "#beheer/vakken")},"Verwijderen"))))))
       : h("div",{class:"stack"}, h("p",{class:"muted"},"Nog geen vakken."), h("div",null,h("button",{class:"btn",onclick:standaardVakken},"Standaardvakken toevoegen")))),
-    h("div",{class:"card stack"},
-      h("h3",null,"🖼️ Icoontjes"),
-      h("p",{class:"muted small"},"Een nieuw icoontje upload je bij Bewerken van een vak. Hier zie je ze allemaal en kun je ze opruimen."),
-      plaatjes.length ? h("div",{class:"plaatjes"}, plaatjes.map(pad => { const bij = S.vakken.filter(v => v.icoon === pad);
-        return h("div",{class:"plaatje"},
-          h("div",{class:"vb",style: bij[0] ? `background:${bij[0].kleur}` : null}, h("img",{src:icoonUrl(pad),alt:""})),
-          h("div",{class:"small"}, bij.length ? "Bij: " + bij.map(v=>v.naam).join(", ") : h("span",{class:"muted"},"Niet in gebruik")),
-          h("button",{class:"btn link",onclick:async()=>{ if (await verwijderIcoon(pad)) viewBeheer("vakken"); }},"Verwijderen")); }))
-      : h("p",{class:"muted"},"Nog geen icoontjes geüpload.")));
+    h("p",{class:"muted small"},"Naam, kleur, plaatje en taalvak stel je in via Bewerken."));
 }
 
 /* --- pauze (vakantie) --- */
@@ -2053,8 +2080,8 @@ function pauzeKaart(){
   const opslaan = async (rij, melding) => { const { error } = rij.id ? await sb.from("pauzes").update({ tot: rij.tot }).eq("id", rij.id) : await sb.from("pauzes").insert(rij);
     if (error) return toast(/relation|does not exist|schema cache/i.test(error.message) ? "Voer eerst SQL-script 09 uit in Supabase." : fout(error)); await laadAlles(); toast(melding); viewBeheer("gebruikers"); };
   const gisteren = () => { const d = new Date(); d.setDate(d.getDate()-1); return iso(d); };
-  return h("div",{class:"card stack"},
-    h("h3",null,"⏸️ Pauze voor puntenverlies"),
+  return klap("pauze", [h("span",null, h("span",{class:"titel"},"⏸️ Pauze voor puntenverlies"), h("br"), h("span",{class:"sub"}, nu ? "Pauze actief" + (nu.tot ? " t/m " + fmt(nu.tot) : "") : komend.length ? "Geen pauze nu · " + komend.length + " gepland" : "Geen pauze: het puntenverlies loopt"))],
+   h("div",{class:"stack",style:"padding-top:10px"},
     h("p",{class:"muted small"},`Spelers verliezen punten als ze langer dan ${VERVAL.gratisDagen} dagen niet spelen. Tijdens een pauze (vakantie, of als er even geen nieuwe quizzen zijn) staat die teller stil.`),
     nu ? h("div",{class:"row"}, h("span",{class:"tag",style:"background:var(--cyan);border-color:var(--cyan);color:#04161A;font-size:.95rem"},"⏸️ Pauze actief"),
           h("span",null, (nu.reden ? nu.reden + " · " : "") + "sinds " + fmt(nu.van) + (nu.tot ? " t/m " + fmt(nu.tot) : " · tot je hem stopt")),
@@ -2071,7 +2098,7 @@ function pauzeKaart(){
         h("div",null,h("button",{class:"btn green",onclick:()=>{
           if (!van.value) return toast("Kies een begindatum.");
           if (tot.value && tot.value < van.value) return toast("De einddatum ligt vóór de begindatum.");
-          opslaan({ van: van.value, tot: tot.value || null, reden: reden.value.trim() || null }, "Pauze opgeslagen."); }},"Opslaan")))));
+          opslaan({ van: van.value, tot: tot.value || null, reden: reden.value.trim() || null }, "Pauze opgeslagen."); }},"Opslaan"))))), { attentie: !!nu });
 }
 
 // Tijdelijk wachtwoord voor een speler, met de keuze of hij het bij inloggen moet wijzigen
@@ -2080,7 +2107,7 @@ function wachtwoordPaneel(p){
   const ww = h("input",{type:"text",id:"bw",value:voorstel,minlength:"8",autocomplete:"off",style:"font-family:ui-monospace,Consolas,monospace"});
   const vink = h("input",{type:"checkbox",id:"bv",checked:true,style:"width:20px;height:20px"});
   const msg = h("div");
-  const paneel = h("div",{class:"card stack",style:"border-color:var(--hot);margin-top:12px"},
+  const paneel = h("div",{class:"card stack",style:"border-color:var(--hot)"},
     h("h3",null,`🔑 Nieuw wachtwoord voor ${p.naam}`),
     h("div",null,h("label",{class:"f",for:"bw"},"Tijdelijk wachtwoord (minstens 8 tekens)"),ww),
     h("label",{class:"row",style:"gap:8px;cursor:pointer"}, vink, "Moet bij de volgende keer inloggen zelf een nieuw wachtwoord kiezen"),
@@ -2107,12 +2134,17 @@ async function beheerGebruikers(){
   const open = (uitnodigingen||[]).filter(u => !u.gebruikt_op);
   const { data: mfaLijst } = await sb.rpc("spelers_met_mfa");
   const metMfa = new Set((mfaLijst || []).map(x => typeof x === "string" ? x : Object.values(x)[0]));
-  const wwPaneel = h("div");
   const mfaUit = async p => {
-    if (!confirm(`Tweestapsverificatie van ${p.naam} uitzetten? Gebruik dit als ${p.naam} zijn telefoon kwijt is. Daarna logt ${p.naam} in met alleen het wachtwoord en kan het opnieuw instellen.`)) return;
+    if (!confirm(`Tweestapsverificatie van ${p.naam} uitzetten? Gebruik dit als ${p.naam} zijn telefoon kwijt is.`)) return;
     const { error } = await sb.rpc("beheer_mfa_uitzetten", { doel: p.id });
     if (error) return toast(/function|schema cache/i.test(error.message) ? "Voer eerst SQL-script 10 uit in Supabase." : fout(error));
     toast(`Tweestapsverificatie van ${p.naam} staat uit.`); viewBeheer("gebruikers");
+  };
+  const fotoToestemming = async (p, mag) => {
+    const { data: oud, error } = await sb.rpc("beheer_foto_toestemming", { doel: p.id, mag });
+    if (error) return toast(/function|schema cache/i.test(error.message) ? "Voer eerst SQL-script 14 uit in Supabase." : fout(error));
+    if (oud) await sb.storage.from("avatars").remove([oud]);
+    await laadAlles(); toast(mag ? `${p.naam} mag nu een profielfoto instellen.` : `${p.naam} kan geen profielfoto meer gebruiken.`); viewBeheer("gebruikers");
   };
   const invEmail = h("input",{type:"email",id:"ie",placeholder:"naam@voorbeeld.nl"});
   const invNaam = h("input",{type:"text",id:"in",maxlength:"36",placeholder:"bijv. Daan"});
@@ -2125,45 +2157,54 @@ async function beheerGebruikers(){
     mailUitnodiging(email, naam);
     viewBeheer("gebruikers");
   }
-  const rijen = S.profielen.map(p => {
+  const spelers = S.profielen.map(p => {
     const r = S.rondes.filter(x => x.speler_id === p.id);
     const goed = r.reduce((t,x)=>t+x.goed,0), tot = r.reduce((t,x)=>t+x.totaal,0);
-    return { p, n:r.length, week:r.filter(x => Date.now()-new Date(x.gespeeld_op) < 7*864e5).length, pct: tot ? Math.round(goed/tot*100)+"%" : "–", laatst:r[0]?.gespeeld_op };
+    const ik = p.id === S.user.id, beheerder = p.rol === "beheerder";
+    const st = beheerder ? null : puntenStand(p.id);
+    const wwPaneel = h("div");
+    const kop = [spelerNaam(p, 30),
+      beheerder ? h("span",{class:"tag"},"beheerder") : null,
+      metMfa.has(p.id) ? h("span",{class:"tag",title:"Tweestapsverificatie staat aan",style:"background:var(--good);border-color:var(--good);color:#04160A"},"🔒") : null,
+      h("span",{class:"sub"}, beheerder ? "" : `· ${r.length} quizzen` + (tot ? ` · ${Math.round(goed/tot*100)}%` : "")),
+      st && st.sinds > VERVAL.gratisDagen && !st.nuPauze && !st.opBodem ? h("span",{title:"Verliest punten"},"📉") : null];
+    const inhoud = h("div",{class:"stack",style:"padding-top:10px"},
+      beheerder ? h("p",{class:"muted small"},"Beheerders doen niet mee aan het scorebord.")
+        : h("div",{class:"row"},
+            h("span",{class:"pill"},`🎮 ${r.length} quizzen`),
+            h("span",{class:"pill"},`📅 ${r.filter(x => Date.now()-new Date(x.gespeeld_op) < 7*864e5).length} deze week`),
+            h("span",{class:"pill"},`✅ ${tot ? Math.round(goed/tot*100) + "%" : "–"} goed`),
+            h("span",{class:"pill"},`⭐ ${nl(st.punten)} punten`)),
+      !beheerder ? h("p",{class:"muted small",style:"margin:0"}, "Laatst gespeeld: " + (r[0] ? datum(r[0].gespeeld_op) : "nog nooit")) : null,
+      !ik ? h("label",{class:"row",style:"gap:10px;cursor:pointer"},
+        h("input",{type:"checkbox",checked:!!p.foto_toegestaan,style:"width:22px;height:22px",onchange:e=>fotoToestemming(p, e.target.checked)}),
+        h("span",null,"Mag een profielfoto instellen", h("span",{class:"muted small"}," (bijvoorbeeld na toestemming van de ouders). Uitzetten haalt een bestaande foto meteen weg."))) : null,
+      h("div",{class:"row",style:"gap:6px"},
+        !beheerder ? h("button",{class:"btn",onclick:()=>go("#overzicht/"+p.id)},"📊 Details") : null,
+        h("button",{class:"btn",onclick:()=>wijzigNaam(p)},"✏️ Naam"),
+        !ik ? h("button",{class:"btn",onclick:()=>{ wwPaneel.replaceChildren(wachtwoordPaneel(p)); }},"🔑 Wachtwoord") : null,
+        !ik && metMfa.has(p.id) ? h("button",{class:"btn",onclick:()=>mfaUit(p)},"🔓 Tweestap uit") : null),
+      wwPaneel);
+    return klap("speler:" + p.id, kop, inhoud);
   });
   return h("div",{class:"stack"},
     pauzeKaart(),
-    h("div",{class:"card stack scroll"},
-      h("h3",null,"Spelers"),
-      h("table",null,
-        h("thead",null,h("tr",null,h("th",null,"App-naam"),h("th",{class:"num"},"Quizzen"),h("th",{class:"num"},"Deze week"),h("th",{class:"num"},"Goed"),h("th",{class:"num"},"Punten"),h("th",null,"Laatst"),h("th",null,""))),
-        h("tbody",null, rijen.map(x => h("tr",null,
-          h("td",null, spelerNaam(x.p), x.p.rol === "beheerder" ? h("span",{class:"tag",style:"margin-left:8px"},"beheerder") : null,
-            metMfa.has(x.p.id) ? h("span",{class:"tag",style:"margin-left:6px;background:var(--good);border-color:var(--good);color:#04160A",title:"Tweestapsverificatie staat aan"},"🔒") : null),
-          h("td",{class:"num"},x.n), h("td",{class:"num"},x.week), h("td",{class:"num"},x.pct),
-          h("td",{class:"num"}, x.p.rol === "beheerder" ? "–" : (() => { const st = puntenStand(x.p.id); return h("span",{title: st.verloren ? `${nl(st.verloren)} punten kwijt door niet spelen` : null}, nl(st.punten), st.sinds > VERVAL.gratisDagen && !st.nuPauze && !st.opBodem ? " 📉" : ""); })()),
-          h("td",{class:"small muted"}, x.laatst ? datum(x.laatst) : "nog nooit"),
-          h("td",{class:"num"},
-            h("button",{class:"btn link",onclick:()=>go("#overzicht/"+x.p.id)},"Details"),
-            h("button",{class:"btn link",onclick:()=>wijzigNaam(x.p)},"Naam"),
-            x.p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${x.p.naam} verwijderen?`)) verwijderFoto(x.p); }},"Foto weg") : null,
-            metMfa.has(x.p.id) && x.p.id !== S.user.id ? h("button",{class:"btn link",onclick:()=>mfaUit(x.p)},"Tweestap uit") : null,
-            x.p.id !== S.user.id ? h("button",{class:"btn link",onclick:()=>{ wwPaneel.replaceChildren(wachtwoordPaneel(x.p)); wwPaneel.scrollIntoView({behavior:"smooth",block:"center"}); }},"Wachtwoord") : null))))),
-      wwPaneel,
-      h("p",{class:"muted small"},"Details: per quiz hoe het ging, welke vragen vaak fout gaan en welke vaak terugkomen. 🔒 = tweestapsverificatie staat aan; met ‘Tweestap uit’ zet je die uit als iemand zijn telefoon kwijt is. ‘Wachtwoord’: stel een tijdelijk wachtwoord in als iemand het zijne vergeten is.")),
-    h("div",{class:"card stack"},
-      h("h3",null,"✉️ Speler uitnodigen"),
-      h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
-      h("div",{class:"row"},
-        h("div",{style:"flex:2;min-width:220px"},h("label",{class:"f",for:"ie"},"E-mailadres"),invEmail),
-        h("div",{style:"flex:1;min-width:160px"},h("label",{class:"f",for:"in"},"Naam (voor in de mail)"),invNaam)),
-      invMsg,
-      h("div",null,h("button",{class:"btn green",onclick:nodigUit},"Uitnodigen")),
-      open.length ? h("div",null, h("h3",{style:"margin-top:10px"},`Nog geen account (${open.length})`),
-        open.map(u => h("div",{class:"inv"},
-          h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email), h("div",{class:"muted small"}, (u.naam ? u.email + " · " : "") + "uitgenodigd op " + datum(u.aangemaakt))),
-          h("button",{class:"btn",onclick:()=>mailUitnodiging(u.email, u.naam)},"Opnieuw mailen"),
-          h("button",{class:"btn link",onclick:async()=>{ if (!confirm(`Uitnodiging voor ${u.email} intrekken?`)) return;
-            const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer("gebruikers"); }},"Intrekken")))) : null));
+    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👥 Spelers"), spelers),
+    klap("uitnodigen", [h("span",null, h("span",{class:"titel"},"✉️ Speler uitnodigen"), h("br"), h("span",{class:"sub"}, open.length ? `${open.length} uitnodiging(en) nog zonder account` : "Nodig een nieuwe speler uit"))],
+      h("div",{class:"stack",style:"padding-top:10px"},
+        h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
+        h("div",{class:"row"},
+          h("div",{style:"flex:2;min-width:220px"},h("label",{class:"f",for:"ie"},"E-mailadres"),invEmail),
+          h("div",{style:"flex:1;min-width:160px"},h("label",{class:"f",for:"in"},"Naam (voor in de mail)"),invNaam)),
+        invMsg,
+        h("div",null,h("button",{class:"btn green",onclick:nodigUit},"Uitnodigen")),
+        open.length ? h("div",null, h("h3",{style:"margin-top:10px"},`Nog geen account (${open.length})`),
+          open.map(u => h("div",{class:"inv"},
+            h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email), h("div",{class:"muted small"}, (u.naam ? u.email + " · " : "") + "uitgenodigd op " + datum(u.aangemaakt))),
+            h("button",{class:"btn",onclick:()=>mailUitnodiging(u.email, u.naam)},"Opnieuw mailen"),
+            h("button",{class:"btn link",onclick:async()=>{ if (!confirm(`Uitnodiging voor ${u.email} intrekken?`)) return;
+              const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer("gebruikers"); }},"Intrekken")))) : null),
+      { attentie: open.length > 0 }));
 }
 
 function mailUitnodiging(email, naam){
