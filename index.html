@@ -304,7 +304,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-13.7";
+const VERSIE = "2026-11-13.8";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -2190,7 +2190,8 @@ async function beheerGebruikers(){
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return msg.replaceChildren(h("p",{class:"note err"},"Vul een geldig e-mailadres in."));
       const rij = ouder ? { email:e, naam, rol:"ouder", kind_id: kind.value || null, telt_mee: mee.checked, gebruikt_op:null } : { email:e, naam, rol:"speler", gebruikt_op:null };
       let { error } = await sb.from("uitnodigingen").upsert(rij, { onConflict:"email" });
-      if (error) return msg.replaceChildren(h("p",{class:"note err"}, /kind_id|telt_mee|rol/.test(error.message) ? "Voer eerst SQL-script 15 en 16 uit in Supabase." : fout(error)));
+      if (error) return msg.replaceChildren(h("p",{class:"note err"},
+        (/schema cache|does not exist|column/i.test(error.message) ? "Supabase kent de nieuwe kolommen nog niet (scripts 15 en 16). " : "Uitnodigen mislukt. ") + "Melding van Supabase: " + error.message));
       mailUitnodiging(e, naam, ouder ? profiel(kind.value)?.naam : null);
       viewBeheer("gebruikers");
     };
