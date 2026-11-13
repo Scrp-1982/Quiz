@@ -301,7 +301,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-13.4";
+const VERSIE = "2026-11-13.6";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -2173,18 +2173,45 @@ async function beheerGebruikers(){
     if (oud) await sb.storage.from("avatars").remove([oud]);
     await laadAlles(); toast(mag ? `${p.naam} mag nu een profielfoto instellen.` : `${p.naam} kan geen profielfoto meer gebruiken.`); viewBeheer("gebruikers");
   };
-  const invEmail = h("input",{type:"email",id:"ie",placeholder:"naam@voorbeeld.nl"});
-  const invNaam = h("input",{type:"text",id:"in",maxlength:"36",placeholder:"bijv. Daan"});
-  const invRol = h("select",{id:"ir"}, h("option",{value:"speler"},"Speler"), h("option",{value:"ouder"},"Ouder"));
-  const invMsg = h("div");
-  async function nodigUit(){
-    const email = invEmail.value.trim().toLowerCase(), naam = invNaam.value.trim() || null;
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return invMsg.replaceChildren(h("p",{class:"note err"},"Vul een geldig e-mailadres in."));
-    let { error } = await sb.from("uitnodigingen").upsert({ email, naam, rol: invRol.value, gebruikt_op:null }, { onConflict:"email" });
-    if (error && /rol/.test(error.message)) ({ error } = await sb.from("uitnodigingen").upsert({ email, naam, gebruikt_op:null }, { onConflict:"email" }));
-    if (error) return invMsg.replaceChildren(h("p",{class:"note err"},fout(error)));
-    mailUitnodiging(email, naam);
-    viewBeheer("gebruikers");
+  // Uitnodigen: één blok onder Spelers en één onder Ouders
+  const spelersLijst = S.profielen.filter(k => k.rol === "speler");
+  function uitnodigBlok(rol){
+    const ouder = rol === "ouder";
+    const email = h("input",{type:"email",placeholder:"naam@voorbeeld.nl","aria-label":"E-mailadres"});
+    const naamIn = h("input",{type:"text",maxlength:"36",placeholder: ouder ? "bijv. Mama" : "bijv. Daan","aria-label":"Naam"});
+    const kind = ouder ? h("select",{"aria-label":"Kind"}, h("option",{value:""},"Kies een kind…"), spelersLijst.map(k => h("option",{value:k.id},k.naam))) : null;
+    const mee = ouder ? h("input",{type:"checkbox",style:"width:22px;height:22px"}) : null;
+    const msg = h("div");
+    const verstuur = async () => {
+      const e = email.value.trim().toLowerCase(), naam = naamIn.value.trim() || null;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return msg.replaceChildren(h("p",{class:"note err"},"Vul een geldig e-mailadres in."));
+      const rij = ouder ? { email:e, naam, rol:"ouder", kind_id: kind.value || null, telt_mee: mee.checked, gebruikt_op:null } : { email:e, naam, rol:"speler", gebruikt_op:null };
+      let { error } = await sb.from("uitnodigingen").upsert(rij, { onConflict:"email" });
+      if (error) return msg.replaceChildren(h("p",{class:"note err"}, /kind_id|telt_mee|rol/.test(error.message) ? "Voer eerst SQL-script 15 en 16 uit in Supabase." : fout(error)));
+      mailUitnodiging(e, naam, ouder ? profiel(kind.value)?.naam : null);
+      viewBeheer("gebruikers");
+    };
+    const openVanRol = open.filter(u => (u.rol || "speler") === rol);
+    return klap("uitnodigen:" + rol, [h("span",null, h("span",{class:"titel"}, ouder ? "✉️ Ouder uitnodigen" : "✉️ Speler uitnodigen"), h("br"),
+        h("span",{class:"sub"}, openVanRol.length ? `${openVanRol.length} uitnodiging(en) nog zonder account` : ouder ? "Nodig een ouder uit en koppel meteen een kind" : "Nodig een nieuwe speler uit"))],
+      h("div",{class:"stack",style:"padding-top:10px"},
+        h("div",{class:"row",style:"align-items:flex-end"},
+          h("div",{style:"flex:2;min-width:220px"}, h("label",{class:"f"},"E-mailadres"), email),
+          h("div",{style:"flex:1;min-width:150px"}, h("label",{class:"f"},"Naam"), naamIn),
+          ouder ? h("div",{style:"flex:1;min-width:150px"}, h("label",{class:"f"},"Ouder van"), kind) : null),
+        ouder ? h("label",{style:"display:flex;gap:10px;align-items:flex-start;cursor:pointer"}, mee,
+          h("span",null,"Score telt mee in de ranglijst", h("span",{class:"muted small"}," (uit = de ouder speelt wel mee, maar staat niet op het scorebord; zijn scores worden wel bewaard)"))) : null,
+        msg,
+        h("div",null,h("button",{class:"btn green",onclick:verstuur},"Uitnodigen")),
+        h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht. Daarna kiest diegene in de app ‘Account maken’ met precies dit e-mailadres."),
+        openVanRol.length ? h("div",null, h("h3",{style:"margin-top:6px"},`Nog geen account (${openVanRol.length})`),
+          openVanRol.map(u => h("div",{class:"inv"},
+            h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email),
+              h("div",{class:"muted small"}, [u.naam ? u.email : null, ouder && u.kind_id ? "ouder van " + (profiel(u.kind_id)?.naam || "?") : null, "uitgenodigd op " + datum(u.aangemaakt)].filter(Boolean).join(" · "))),
+            h("button",{class:"btn",onclick:()=>mailUitnodiging(u.email, u.naam, ouder ? profiel(u.kind_id)?.naam : null)},"Opnieuw mailen"),
+            h("button",{class:"btn link",onclick:async()=>{ if (!confirm(`Uitnodiging voor ${u.email} intrekken?`)) return;
+              const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer("gebruikers"); }},"Intrekken")))) : null),
+      { attentie: openVanRol.length > 0 });
   }
   const zetRol = async (p, rol, meetellen) => {
     const { error } = await sb.rpc("beheer_rol", { doel:p.id, nieuwe_rol:rol, meetellen });
@@ -2216,7 +2243,7 @@ async function beheerGebruikers(){
         h("label",{class:"row",style:"gap:6px;cursor:pointer"}, h("input",{type:"radio",name:"rol-"+p.id,checked:ouder,onchange:()=>zetRol(p,"ouder",false)}), "Ouder")) : null,
       ouder ? h("label",{style:"display:flex;gap:10px;align-items:flex-start;cursor:pointer"},
         h("input",{type:"checkbox",checked:!!p.telt_mee,style:"width:22px;height:22px",onchange:e=>zetRol(p,"ouder",e.target.checked)}),
-        h("span",null,"Telt mee in de punten", h("span",{class:"muted small"}," (staat op het scorebord en bij de records)"))) : null,
+        h("span",null,"Score telt mee in de ranglijst", h("span",{class:"muted small"}," (uit = haalt de ouder meteen van het scorebord; zijn scores worden wel bewaard)"))) : null,
       ouder ? h("div",null, h("div",{style:"font-weight:600;margin-bottom:4px"},"Ouder van:"),
         S.profielen.filter(k => k.rol === "speler").length
           ? h("div",{class:"typekeuze"}, S.profielen.filter(k => k.rol === "speler").map(k => h("label",null,
@@ -2245,32 +2272,17 @@ async function beheerGebruikers(){
   const ouders = lijstVan("ouder");
   return h("div",{class:"stack"},
     pauzeKaart(),
-    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👥 Spelers"), lijstVan("speler")),
-    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👨‍👩‍👧 Ouders"), ouders.length ? ouders : h("p",{class:"muted small"},"Nog geen ouders. Nodig iemand uit als ouder, of maak van een bestaand account een ouder via Rol.")),
-    klap("uitnodigen", [h("span",null, h("span",{class:"titel"},"✉️ Uitnodigen"), h("br"), h("span",{class:"sub"}, open.length ? `${open.length} uitnodiging(en) nog zonder account` : "Nodig een nieuwe speler of ouder uit"))],
-      h("div",{class:"stack",style:"padding-top:10px"},
-        h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
-        h("div",{class:"row"},
-          h("div",{style:"flex:2;min-width:220px"},h("label",{class:"f",for:"ie"},"E-mailadres"),invEmail),
-          h("div",{style:"flex:1;min-width:160px"},h("label",{class:"f",for:"in"},"Naam (voor in de mail)"),invNaam),
-          h("div",{style:"min-width:120px"},h("label",{class:"f",for:"ir"},"Als"),invRol)),
-        invMsg,
-        h("div",null,h("button",{class:"btn green",onclick:nodigUit},"Uitnodigen")),
-        open.length ? h("div",null, h("h3",{style:"margin-top:10px"},`Nog geen account (${open.length})`),
-          open.map(u => h("div",{class:"inv"},
-            h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email), u.rol === "ouder" ? h("span",{class:"tag",style:"margin-left:6px"},"ouder") : null, h("div",{class:"muted small"}, (u.naam ? u.email + " · " : "") + "uitgenodigd op " + datum(u.aangemaakt))),
-            h("button",{class:"btn",onclick:()=>mailUitnodiging(u.email, u.naam)},"Opnieuw mailen"),
-            h("button",{class:"btn link",onclick:async()=>{ if (!confirm(`Uitnodiging voor ${u.email} intrekken?`)) return;
-              const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer("gebruikers"); }},"Intrekken")))) : null),
-      { attentie: open.length > 0 }));
+    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👥 Spelers"), lijstVan("speler"), h("div",{style:"height:8px"}), uitnodigBlok("speler")),
+    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👨‍👩‍👧 Ouders"), ouders.length ? ouders : h("p",{class:"muted small"},"Nog geen ouders."), h("div",{style:"height:8px"}), uitnodigBlok("ouder")),
+  );
 }
 
-function mailUitnodiging(email, naam){
+function mailUitnodiging(email, naam, kindNaam){
   const link = location.origin + location.pathname;
   const onderwerp = "Uitnodiging voor Quizmaster";
   const tekst = `Hoi${naam ? " " + naam : ""},
 
-Je bent uitgenodigd voor Quizmaster, de app waarmee je je lesstof oefent met quizzen en strijdt om de highscore.
+${kindNaam ? `Je bent uitgenodigd voor Quizmaster, de quiz-app waarmee ${kindNaam} de lesstof oefent. Met je eigen account zie je hoe het gaat, en je kunt zelf ook quizzen spelen.` : "Je bent uitgenodigd voor Quizmaster, de app waarmee je je lesstof oefent met quizzen en strijdt om de highscore."}
 
 1. Ga naar ${link}
 2. Kies "Account maken".
@@ -2307,7 +2319,7 @@ async function viewOverzichtSpeler(id){
   const p = profiel(id); if (!p) return go("#overzicht");
   laden("Overzicht maken…");
   const [rq, vq] = await Promise.all([
-    sb.from("rondes").select("onderwerp_id, toets_id, goed, totaal, gespeeld_op, antwoorden").eq("speler_id", id).order("gespeeld_op",{ascending:false}),
+    sb.from("rondes").select("id, onderwerp_id, toets_id, moeilijkheid, score, goed, totaal, gespeeld_op, antwoorden").eq("speler_id", id).order("gespeeld_op",{ascending:false}),
     sb.from("vragen").select("id, onderwerp_id, variant_van").eq("status","actief"),
   ]);
   if (rq.error) throw rq.error; if (vq.error) throw vq.error;
@@ -2356,6 +2368,12 @@ async function viewOverzichtSpeler(id){
     owRijen.some(x => x.fams && x.nooit/x.fams < .2) ? h("p",{class:"note warn"},"Bij sommige quizzen heeft deze speler bijna alle vragen al gehad. Maak daar meer vragen of een andere vraagstelling, zodat de quiz fris blijft.") : null,
     h("div",{class:"card scroll"}, h("h3",null,"❌ Gaan het vaakst fout"), moeilijk.length ? vraagTabel(moeilijk, true) : h("p",{class:"muted"},"Nog geen foute antwoorden.")),
     h("div",{class:"card scroll"}, h("h3",null,"🔁 Komen het vaakst terug"), vaak.length ? vraagTabel(vaak, false) : h("p",{class:"muted"},"Nog niets gespeeld.")),
+    rq.data.length ? h("div",{class:"card scroll"}, h("h3",null,"🕑 Laatste rondes"),
+      h("p",{class:"muted small"},"Tik op een ronde om elke vraag terug te zien: wat er geantwoord is, het goede antwoord en de uitleg."),
+      h("table",null,h("tbody",null, rq.data.slice(0,25).map(r => { const b = bronVan(r);
+        return h("tr",{class:"clickrow",onclick:()=>go("#ronde/"+r.id)},
+          h("td",null,datum(r.gespeeld_op)), h("td",null,b.emoji+" "+b.titel), h("td",null,DIFF[r.moeilijkheid]?.sterren || ""),
+          h("td",{class:"num"}, r.goed === r.totaal ? "💯" : h("span",{style:"color:var(--bad)"},`${r.totaal - r.goed} fout`)), h("td",{class:"num"},`${r.goed}/${r.totaal} ›`)); })))) : null,
     h("button",{class:"btn",onclick:()=>go(isBeheerder() ? "#beheer/gebruikers" : "#")}, isBeheerder() ? "Terug naar Gebruikers" : "Terug")));
 }
 
