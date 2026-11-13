@@ -29,7 +29,7 @@
   color-scheme:dark; box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
-*,*::before,*::after{box-sizing:inherit}
+*,*::before,*::after{box-sizing:border-box}
 body{margin:0;color:var(--text);font-family:var(--body);font-size:17px;line-height:1.5;min-height:100vh;
   background:
     radial-gradient(900px 520px at 85% -10%, rgba(255,107,26,.20), transparent 60%),
@@ -220,6 +220,9 @@ summary{cursor:pointer;font-weight:600}
 .qrow .info{flex:1;min-width:200px}
 .qrow .acties{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .vakkop{display:flex;align-items:center;gap:10px;margin-top:8px}
+.formrij{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.formrij > div{flex:1 1 180px;max-width:260px;min-width:0}
+.formrij input,.formrij select{width:100%;max-width:100%;min-width:0}
 .inv{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
 .inv:first-child{border-top:0}
 .avatars{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:8px}
@@ -301,7 +304,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-13.6";
+const VERSIE = "2026-11-13.7";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -2195,10 +2198,10 @@ async function beheerGebruikers(){
     return klap("uitnodigen:" + rol, [h("span",null, h("span",{class:"titel"}, ouder ? "✉️ Ouder uitnodigen" : "✉️ Speler uitnodigen"), h("br"),
         h("span",{class:"sub"}, openVanRol.length ? `${openVanRol.length} uitnodiging(en) nog zonder account` : ouder ? "Nodig een ouder uit en koppel meteen een kind" : "Nodig een nieuwe speler uit"))],
       h("div",{class:"stack",style:"padding-top:10px"},
-        h("div",{class:"row",style:"align-items:flex-end"},
-          h("div",{style:"flex:2;min-width:220px"}, h("label",{class:"f"},"E-mailadres"), email),
-          h("div",{style:"flex:1;min-width:150px"}, h("label",{class:"f"},"Naam"), naamIn),
-          ouder ? h("div",{style:"flex:1;min-width:150px"}, h("label",{class:"f"},"Ouder van"), kind) : null),
+        h("div",{class:"formrij"},
+          h("div",null, h("label",{class:"f"},"E-mailadres"), email),
+          h("div",null, h("label",{class:"f"},"Naam"), naamIn),
+          ouder ? h("div",null, h("label",{class:"f"},"Ouder van"), kind) : null),
         ouder ? h("label",{style:"display:flex;gap:10px;align-items:flex-start;cursor:pointer"}, mee,
           h("span",null,"Score telt mee in de ranglijst", h("span",{class:"muted small"}," (uit = de ouder speelt wel mee, maar staat niet op het scorebord; zijn scores worden wel bewaard)"))) : null,
         msg,
