@@ -269,7 +269,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-12.17";
+const VERSIE = "2026-11-13.1";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -436,7 +436,7 @@ function go(hash){ if ((location.hash || "#") === (hash || "#")) route(); else l
 function render(...nodes){ stopTimer(); $app.replaceChildren(header(),
   S.alsSpeler && echtBeheerder() ? h("div",{class:"spelerbalk",role:"status"}, h("span",null,"👀 Je bekijkt de app als speler. Rondes worden niet opgeslagen."),
     h("button",{class:"btn",onclick:()=>wisselWeergave(false)},"Terug naar beheer")) : null, ...nodes.filter(n => n != null && n !== false), h("p",{class:"version muted small"},"Versie " + VERSIE)); window.scrollTo(0,0); }
-function laden(titel, sub){ $app.replaceChildren(header(), h("div",{class:"card loading"}, h("div",{class:"spinner",role:"img","aria-label":"Bezig"}), h("h3",null,titel), sub ? h("p",{class:"muted",id:"laadtekst"},sub) : null)); }
+function laden(titel, sub){ $app.replaceChildren(header(), h("div",{class:"card loading"}, h("div",{class:"spinner",role:"img","aria-label":"Bezig"}), h("h3",null,titel), h("p",{class:"muted",id:"laadtekst"},sub || ""))); }
 function fout(e){ console.error(e); return (e && (e.message || e.error_description)) || String(e); }
 
 /* ============ status ============ */
@@ -519,6 +519,32 @@ async function leesAal(){
 // Wie tweestapsverificatie heeft ingesteld, moet bij het inloggen ook de code invullen
 const moetCode = () => S.user && S.aalNodig === "aal2" && S.aal !== "aal2";
 
+// Eigen (nieuw) wachtwoord kiezen. verplicht = na een tijdelijk wachtwoord van de beheerder.
+function viewWachtwoord(verplicht = false){
+  const ww1 = h("input",{type:"password",id:"w1",minlength:"8",autocomplete:"new-password"});
+  const ww2 = h("input",{type:"password",id:"w2",minlength:"8",autocomplete:"new-password"});
+  const msg = h("div");
+  const knop = h("button",{class:"btn green big",type:"submit"},"Opslaan");
+  const form = h("form",{class:"card stack",onsubmit:async e=>{
+    e.preventDefault(); msg.replaceChildren();
+    if (ww1.value.length < 8) return msg.replaceChildren(h("p",{class:"note err"},"Kies een wachtwoord van minstens 8 tekens."));
+    if (ww1.value !== ww2.value) return msg.replaceChildren(h("p",{class:"note err"},"De twee wachtwoorden zijn niet hetzelfde."));
+    knop.disabled = true;
+    const { error } = await sb.auth.updateUser({ password: ww1.value });
+    if (error){ knop.disabled = false; return msg.replaceChildren(h("p",{class:"note err"}, /different from the old|same/i.test(error.message) ? "Kies een ander wachtwoord dan het tijdelijke." : fout(error))); }
+    await sb.rpc("ww_gewijzigd");
+    await laadAlles().catch(()=>{});
+    if (S.profiel) S.profiel.moet_ww_wijzigen = false;
+    toast("Je nieuwe wachtwoord is opgeslagen."); go(verplicht ? "#" : "#profiel");
+  }},
+    h("h2",null,"🔑 Nieuw wachtwoord"),
+    verplicht ? h("p",null,"De beheerder heeft een tijdelijk wachtwoord voor je ingesteld. Kies nu je eigen wachtwoord.") : h("p",null,"Kies een nieuw wachtwoord van minstens 8 tekens."),
+    h("div",null,h("label",{class:"f",for:"w1"},"Nieuw wachtwoord"),ww1),
+    h("div",null,h("label",{class:"f",for:"w2"},"Nog een keer"),ww2),
+    msg, h("div",{class:"row"}, knop, verplicht ? h("button",{class:"btn link",type:"button",onclick:async()=>{ await sb.auth.signOut(); }},"Uitloggen") : h("button",{class:"btn link",type:"button",onclick:()=>history.back()},"Annuleren")));
+  $app.replaceChildren(verplicht ? h("div",{class:"top"}, logo()) : header(), h("div",{style:"max-width:460px;margin:0 auto"}, form), h("p",{class:"version muted small"},"Versie " + VERSIE));
+  setTimeout(() => ww1.focus(), 50);
+}
 async function viewCodeBijInloggen(){
   const code = h("input",{type:"text",inputmode:"numeric",autocomplete:"one-time-code",maxlength:"6",placeholder:"123456",id:"lc"});
   const msg = h("div");
@@ -561,6 +587,7 @@ const logo = () => h("button",{class:"logo",onclick:()=>go("#"),"aria-label":"Na
 async function route(){
   if (!S.user) return viewLogin();
   if (moetCode()) return viewCodeBijInloggen();
+  if (S.profiel?.moet_ww_wijzigen) return viewWachtwoord(true);
   const [r, id] = location.hash.replace(/^#\/?/,"").split("/");
   if (r !== "spelen" && S.ronde) { S.ronde = null; }
   try {
@@ -577,6 +604,7 @@ async function route(){
       case "ronde": return viewRonde(id);
       case "profiel": return viewProfiel();
       case "beheer": return viewBeheer(id || "quizzen");
+      case "wachtwoord": return viewWachtwoord(false);
       case "quiz-nieuw": return viewFotos({ vakId:id });
       case "eindtoets-nieuw": return viewToetsForm({ vakId:id });
       case "overzicht": return id ? viewOverzichtSpeler(id) : go("#beheer/gebruikers");
@@ -593,8 +621,8 @@ window.addEventListener("hashchange", route);
 /* ============ inloggen ============ */
 function viewLogin(modus = "login"){
   const tabs = h("div",{class:"auth-tabs",role:"tablist"},
-    h("button",{role:"tab","aria-selected":String(modus==="login"),onclick:()=>viewLogin("login")},"Inloggen"),
-    h("button",{role:"tab","aria-selected":String(modus==="nieuw"),onclick:()=>viewLogin("nieuw")},"Account maken"));
+    h("button",{type:"button",role:"tab","aria-selected":String(modus==="login"),onclick:()=>viewLogin("login")},"Inloggen"),
+    h("button",{type:"button",role:"tab","aria-selected":String(modus==="nieuw"),onclick:()=>viewLogin("nieuw")},"Account maken"));
   const email = h("input",{type:"email",id:"em",autocomplete:"email",required:true});
   const ww = h("input",{type:"password",id:"pw",minlength:"8",autocomplete: modus==="login" ? "current-password" : "new-password",required:true});
   const naam = h("input",{type:"text",id:"an",maxlength:"36",autocomplete:"nickname",placeholder:"bijv. QuizKing"});
@@ -607,12 +635,19 @@ function viewLogin(modus = "login"){
       if (ww.value.length < 8) return msg.replaceChildren(h("p",{class:"note err"},"Kies een wachtwoord van minstens 8 tekens."));
       if (!naam.value.trim()) return msg.replaceChildren(h("p",{class:"note err"},"Kies een app-naam."));
     }
-    knop.disabled = true;
-    const res = modus === "login"
-      ? await sb.auth.signInWithPassword({ email: em, password: ww.value })
-      : await sb.auth.signUp({ email: em, password: ww.value, options: { data: { naam: naam.value.trim() } } });
-    knop.disabled = false;
+    knop.disabled = true; knop.textContent = modus === "login" ? "Bezig met inloggen…" : "Bezig…";
+    // Blijft het hangen, dan na 20 seconden een duidelijke melding in plaats van stilte
+    const traag = setTimeout(() => msg.replaceChildren(h("p",{class:"note warn"},"Inloggen duurt erg lang. Heb je de app nog in een ander tabblad open staan? Sluit die tabbladen, ververs deze pagina (Ctrl+F5) en probeer het opnieuw.")), 20000);
+    let res;
+    try {
+      res = modus === "login"
+        ? await sb.auth.signInWithPassword({ email: em, password: ww.value })
+        : await sb.auth.signUp({ email: em, password: ww.value, options: { data: { naam: naam.value.trim() } } });
+    } catch (err) { res = { error: err }; }
+    clearTimeout(traag);
+    knop.disabled = false; knop.textContent = modus === "login" ? "Inloggen" : "Account maken";
     if (res.error) return msg.replaceChildren(h("p",{class:"note err"}, authFout(res.error)));
+    if (modus === "login") msg.replaceChildren(h("p",{class:"note ok"},"Ingelogd, even geduld…"));
     if (modus === "nieuw" && !res.data.session){ viewLogin("login"); toast("Account gemaakt. Log nu in."); }
   }},
     tabs,
@@ -1869,7 +1904,8 @@ function viewProfiel(){
       }},"Opslaan"),
       h("p",{class:"muted small"},"De beheerder kan je app-naam aanpassen als dat nodig is.")),
     mfaKaart(),
-    h("button",{class:"btn",onclick:async()=>{ await sb.auth.signOut(); }},"Uitloggen")));
+    h("div",{class:"row"}, h("button",{class:"btn",onclick:()=>go("#wachtwoord")},"🔑 Wachtwoord wijzigen"),
+      h("button",{class:"btn",onclick:async()=>{ await sb.auth.signOut(); }},"Uitloggen"))));
 }
 function mfaKaart(){
   const inhoud = h("div",{class:"stack"}, h("p",{class:"muted"},"Laden…"));
@@ -2021,12 +2057,40 @@ function pauzeKaart(){
           opslaan({ van: van.value, tot: tot.value || null, reden: reden.value.trim() || null }, "Pauze opgeslagen."); }},"Opslaan")))));
 }
 
+// Tijdelijk wachtwoord voor een speler, met de keuze of hij het bij inloggen moet wijzigen
+function wachtwoordPaneel(p){
+  const voorstel = "Quiz-" + String(Math.floor(1000 + Math.random()*9000)) + "!";
+  const ww = h("input",{type:"text",id:"bw",value:voorstel,minlength:"8",autocomplete:"off",style:"font-family:ui-monospace,Consolas,monospace"});
+  const vink = h("input",{type:"checkbox",id:"bv",checked:true,style:"width:20px;height:20px"});
+  const msg = h("div");
+  const paneel = h("div",{class:"card stack",style:"border-color:var(--hot);margin-top:12px"},
+    h("h3",null,`🔑 Nieuw wachtwoord voor ${p.naam}`),
+    h("div",null,h("label",{class:"f",for:"bw"},"Tijdelijk wachtwoord (minstens 8 tekens)"),ww),
+    h("label",{class:"row",style:"gap:8px;cursor:pointer"}, vink, "Moet bij de volgende keer inloggen zelf een nieuw wachtwoord kiezen"),
+    msg,
+    h("div",{class:"row"},
+      h("button",{class:"btn green",onclick:async()=>{
+        if (ww.value.length < 8) return msg.replaceChildren(h("p",{class:"note err"},"Minstens 8 tekens."));
+        const { error } = await sb.rpc("beheer_wachtwoord", { doel:p.id, nieuw:ww.value, wijzigen:vink.checked });
+        if (error) return msg.replaceChildren(h("p",{class:"note err"}, /function|schema cache/i.test(error.message) ? "Voer eerst SQL-script 13 uit in Supabase." : fout(error)));
+        paneel.replaceChildren(h("h3",null,"✅ Wachtwoord ingesteld"),
+          h("p",null,`Geef dit door aan ${p.naam}:`),
+          h("p",{class:"code",style:"font-size:1.4rem"}, ww.value),
+          h("p",{class:"muted small"}, vink.checked ? `${p.naam} kiest bij de volgende keer inloggen zelf een nieuw wachtwoord. Hij is op al zijn apparaten uitgelogd.` : `${p.naam} kan hiermee gewoon blijven inloggen. Hij is op al zijn apparaten uitgelogd.`),
+          h("div",{class:"row"}, navigator.clipboard ? h("button",{class:"btn",onclick:()=>navigator.clipboard.writeText(ww.value).then(()=>toast("Gekopieerd."))},"📋 Kopiëren") : null,
+            h("button",{class:"btn link",onclick:()=>paneel.remove()},"Sluiten")));
+      }},"Opslaan"),
+      h("button",{class:"btn link",onclick:()=>paneel.remove()},"Annuleren")));
+  return paneel;
+}
+
 /* --- tab Gebruikers --- */
 async function beheerGebruikers(){
   const { data: uitnodigingen } = await sb.from("uitnodigingen").select("*").order("aangemaakt",{ascending:false});
   const open = (uitnodigingen||[]).filter(u => !u.gebruikt_op);
   const { data: mfaLijst } = await sb.rpc("spelers_met_mfa");
   const metMfa = new Set((mfaLijst || []).map(x => typeof x === "string" ? x : Object.values(x)[0]));
+  const wwPaneel = h("div");
   const mfaUit = async p => {
     if (!confirm(`Tweestapsverificatie van ${p.naam} uitzetten? Gebruik dit als ${p.naam} zijn telefoon kwijt is. Daarna logt ${p.naam} in met alleen het wachtwoord en kan het opnieuw instellen.`)) return;
     const { error } = await sb.rpc("beheer_mfa_uitzetten", { doel: p.id });
@@ -2065,8 +2129,10 @@ async function beheerGebruikers(){
             h("button",{class:"btn link",onclick:()=>go("#overzicht/"+x.p.id)},"Details"),
             h("button",{class:"btn link",onclick:()=>wijzigNaam(x.p)},"Naam"),
             x.p.foto ? h("button",{class:"btn link",onclick:()=>{ if (confirm(`Foto van ${x.p.naam} verwijderen?`)) verwijderFoto(x.p); }},"Foto weg") : null,
-            metMfa.has(x.p.id) && x.p.id !== S.user.id ? h("button",{class:"btn link",onclick:()=>mfaUit(x.p)},"Tweestap uit") : null))))),
-      h("p",{class:"muted small"},"Details: per quiz hoe het ging, welke vragen vaak fout gaan en welke vaak terugkomen. 🔒 = tweestapsverificatie staat aan; met ‘Tweestap uit’ zet je die uit als iemand zijn telefoon kwijt is.")),
+            metMfa.has(x.p.id) && x.p.id !== S.user.id ? h("button",{class:"btn link",onclick:()=>mfaUit(x.p)},"Tweestap uit") : null,
+            x.p.id !== S.user.id ? h("button",{class:"btn link",onclick:()=>{ wwPaneel.replaceChildren(wachtwoordPaneel(x.p)); wwPaneel.scrollIntoView({behavior:"smooth",block:"center"}); }},"Wachtwoord") : null))))),
+      wwPaneel,
+      h("p",{class:"muted small"},"Details: per quiz hoe het ging, welke vragen vaak fout gaan en welke vaak terugkomen. 🔒 = tweestapsverificatie staat aan; met ‘Tweestap uit’ zet je die uit als iemand zijn telefoon kwijt is. ‘Wachtwoord’: stel een tijdelijk wachtwoord in als iemand het zijne vergeten is.")),
     h("div",{class:"card stack"},
       h("h3",null,"✉️ Speler uitnodigen"),
       h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
@@ -2194,7 +2260,8 @@ async function sessie(session){
   S.user = session?.user || null;
   if (!S.user){ S.profiel = null; return route(); }
   laden("Laden…");
-  try { await leesAal(); if (moetCode()) return viewCodeBijInloggen(); await laadAlles(); route(); }
+  const traag = setTimeout(() => document.getElementById("laadtekst")?.replaceChildren("Dit duurt erg lang. Ververs de pagina (Ctrl+F5) of sluit andere tabbladen met de app."), 15000);
+  try { await leesAal(); if (moetCode()) { clearTimeout(traag); return viewCodeBijInloggen(); } await laadAlles(); clearTimeout(traag); route(); }
   catch (e) { render(h("p",{class:"note err"},"Laden mislukt: " + fout(e)), h("button",{class:"btn",onclick:()=>location.reload()},"Opnieuw proberen")); }
 }
 let vorigeGebruiker;
