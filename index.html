@@ -301,7 +301,7 @@ summary{cursor:pointer;font-weight:600}
 // null en false nooit als tekst tonen
 { const orig = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function(...n){ return orig.apply(this, n.filter(x => x != null && x !== false)); }; }
 /* ============ instellingen ============ */
-const VERSIE = "2026-11-13.3";
+const VERSIE = "2026-11-13.4";
 const SUPABASE_URL = "https://ojqqrfkmiptkdffynvvq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_8MeILxkBFHZCKs7ZOr_lXw_uXI4Dcv6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -472,13 +472,17 @@ function laden(titel, sub){ $app.replaceChildren(header(), h("div",{class:"card 
 function fout(e){ console.error(e); return (e && (e.message || e.error_description)) || String(e); }
 
 /* ============ status ============ */
-const S = { open:new Set(), pauzes:[], user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
+const S = { ouderKind:[], open:new Set(), pauzes:[], user:null, profiel:null, aal:"aal1", vakken:[], onderwerpen:[], toetsen:[], toetsOw:[], profielen:[], rondes:[], flash:null, ronde:null, terug:"#" };
 // Een beheerder kan de app bekijken zoals een speler hem ziet (S.alsSpeler)
 S.alsSpeler = sessionStorage.getItem("qm:alsSpeler") === "1";
 const echtBeheerder = () => S.profiel?.rol === "beheerder";
 const isBeheerderRol = () => echtBeheerder() && !S.alsSpeler;
 const isBeheerder = () => isBeheerderRol() && S.aal === "aal2";
-const telMee = spelerId => profiel(spelerId)?.rol !== "beheerder";   // beheerders staan niet op scoreborden
+// beheerders, en ouders die niet meetellen, staan niet op scoreborden en bij records
+const telMee = spelerId => { const p = profiel(spelerId); return !!p && p.rol !== "beheerder" && !(p.rol === "ouder" && !p.telt_mee); };
+const isOuder = () => S.profiel?.rol === "ouder";
+const kinderenVan = ouderId => S.ouderKind.filter(x => x.ouder_id === ouderId).map(x => x.kind_id);
+const ouderVan = kindId => S.ouderKind.filter(x => x.kind_id === kindId).map(x => x.ouder_id);
 function wisselWeergave(alsSpeler){
   S.alsSpeler = alsSpeler; sessionStorage.setItem("qm:alsSpeler", alsSpeler ? "1" : "0");
   toast(alsSpeler ? "Je ziet de app nu zoals een speler." : "Terug in de beheerdersweergave.");
@@ -528,7 +532,7 @@ function toetsDatumTekst(d){
 
 const RONDE_VELDEN = "id, speler_id, onderwerp_id, toets_id, moeilijkheid, met_tijd, score, goed, totaal, langste_reeks, gespeeld_op";
 async function laadAlles(){
-  const [v, o, p, r, t, to, pz] = await Promise.all([
+  const [v, o, p, r, t, to, pz, ok] = await Promise.all([
     sb.from("vakken").select("*").order("volgorde").order("naam"),
     sb.from("onderwerpen").select("id, vak_id, titel, emoji, niveau, zichtbaar, vraagsoorten, aangemaakt, vragen(count)").order("titel"),
     sb.from("profielen").select("*").order("naam"),
@@ -536,9 +540,11 @@ async function laadAlles(){
     sb.from("toetsen").select("*").order("datum",{ascending:true,nullsFirst:false}),
     sb.from("toets_onderwerpen").select("*"),
     sb.from("pauzes").select("*").order("van"),
+    sb.from("ouder_kind").select("*"),
   ]);
   for (const x of [v,o,p,r,t,to]) if (x.error) throw x.error;
   S.pauzes = pz.error ? [] : pz.data;   // werkt ook als script 09 nog niet is uitgevoerd
+  S.ouderKind = ok.error ? [] : ok.data;   // idem voor script 15
   S.toetsen = t.data; S.toetsOw = to.data;
   S.vakken = v.data; S.onderwerpen = o.data.map(x => ({...x, aantal: x.vragen?.[0]?.count ?? 0})); S.profielen = p.data; S.rondes = r.data;
   S.profiel = S.profielen.find(x => x.id === S.user.id) || S.profiel;
@@ -743,8 +749,28 @@ async function viewMfa(terug){
 
 /* ============ home: tegels ============ */
 // Bovenaan het beginscherm van een beheerder: korte stand van zaken in plaats van punten
+// Beginscherm van een ouder: de gekoppelde kinderen bovenaan
+function ouderStrip(){
+  const kinderen = kinderenVan(S.user.id).map(profiel).filter(Boolean);
+  return h("div",{class:"stack"},
+    h("h1",null,`Hoi ${S.profiel?.naam || ""}`),
+    S.profiel.telt_mee ? rangBalk(puntenStand(S.user.id).punten) : null,
+    h("div",{class:"card stack"},
+      h("h3",null,"👨‍👩‍👧 Mijn kinderen"),
+      kinderen.length ? h("div",{class:"qlijst"}, kinderen.map(k => {
+        const r = S.rondes.filter(x => x.speler_id === k.id), goed = r.reduce((t,x)=>t+x.goed,0), tot = r.reduce((t,x)=>t+x.totaal,0);
+        const week = r.filter(x => Date.now()-new Date(x.gespeeld_op) < 7*864e5).length, st = puntenStand(k.id), l = level(st.punten);
+        return h("button",{class:"qregel",onclick:()=>go("#overzicht/"+k.id)},
+          poppetje(k, 40),
+          h("span",{class:"info"}, h("strong",null,k.naam),
+            h("span",{class:"muted small"}, `Lv ${l.L} ${l.titel} · ${week} quizzen deze week · ${tot ? Math.round(goed/tot*100) + "% goed" : "nog niet gespeeld"}` + (r[0] ? ` · laatst ${datum(r[0].gespeeld_op)}` : ""))),
+          h("span",{class:"rechts"}, `⭐ ${nl(st.punten)}`), h("span",{class:"pijl"},"›"));
+      })) : h("p",{class:"muted"},"Er zijn nog geen kinderen aan je account gekoppeld. Vraag het aan de beheerder."),
+      kinderen.length ? h("p",{class:"muted small"},"Tik op een kind om te zien hoe het gaat: per quiz, welke vragen vaak fout gaan en welke vaak terugkomen.") : null),
+    !S.profiel.telt_mee ? h("p",{class:"muted small"},"Je kunt zelf ook quizzen spelen. Je scores tellen niet mee op het scorebord.") : null);
+}
 function beheerStrip(){
-  const spelers = S.profielen.filter(p => p.rol !== "beheerder");
+  const spelers = S.profielen.filter(p => p.rol === "speler");
   const week = new Set(S.rondes.filter(r => Date.now()-new Date(r.gespeeld_op) < 7*864e5 && telMee(r.speler_id)).map(r => r.speler_id)).size;
   const live = S.onderwerpen.filter(o => o.zichtbaar).length, verborgen = S.onderwerpen.length - live;
   const teControleren = h("b",null,"…");
@@ -773,6 +799,7 @@ function viewHome(){
   render(
     flash ? h("p",{class:"note ok"},flash) : null,
     echtBeheerder() && !S.alsSpeler ? beheerStrip()
+      : isOuder() ? ouderStrip()
       : h("div",{class:"stack"}, h("h1",null,`Welkom terug, ${S.profiel?.naam || ""}`), rangBalk(puntenStand(S.user.id).punten), vervalMelding(puntenStand(S.user.id)),
           h("div",null, h("button",{class:"btn",onclick:()=>go("#speler/"+S.user.id)},"🏅 Mijn mijlpalen & rondes"))),
     komendeToetsen(),
@@ -2148,27 +2175,54 @@ async function beheerGebruikers(){
   };
   const invEmail = h("input",{type:"email",id:"ie",placeholder:"naam@voorbeeld.nl"});
   const invNaam = h("input",{type:"text",id:"in",maxlength:"36",placeholder:"bijv. Daan"});
+  const invRol = h("select",{id:"ir"}, h("option",{value:"speler"},"Speler"), h("option",{value:"ouder"},"Ouder"));
   const invMsg = h("div");
   async function nodigUit(){
     const email = invEmail.value.trim().toLowerCase(), naam = invNaam.value.trim() || null;
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return invMsg.replaceChildren(h("p",{class:"note err"},"Vul een geldig e-mailadres in."));
-    const { error } = await sb.from("uitnodigingen").upsert({ email, naam, gebruikt_op:null }, { onConflict:"email" });
+    let { error } = await sb.from("uitnodigingen").upsert({ email, naam, rol: invRol.value, gebruikt_op:null }, { onConflict:"email" });
+    if (error && /rol/.test(error.message)) ({ error } = await sb.from("uitnodigingen").upsert({ email, naam, gebruikt_op:null }, { onConflict:"email" }));
     if (error) return invMsg.replaceChildren(h("p",{class:"note err"},fout(error)));
     mailUitnodiging(email, naam);
     viewBeheer("gebruikers");
   }
-  const spelers = S.profielen.map(p => {
+  const zetRol = async (p, rol, meetellen) => {
+    const { error } = await sb.rpc("beheer_rol", { doel:p.id, nieuwe_rol:rol, meetellen });
+    if (error) return toast(/function|schema cache/i.test(error.message) ? "Voer eerst SQL-script 15 uit in Supabase." : fout(error));
+    await laadAlles(); toast(rol === "ouder" ? `${p.naam} is nu ouder.` : `${p.naam} is nu speler.`); viewBeheer("gebruikers");
+  };
+  const koppel = async (ouder, kind, aan) => {
+    const { error } = aan ? await sb.from("ouder_kind").insert({ ouder_id:ouder.id, kind_id:kind.id })
+                          : await sb.from("ouder_kind").delete().eq("ouder_id", ouder.id).eq("kind_id", kind.id);
+    if (error) return toast(fout(error));
+    await laadAlles(); toast(aan ? `${ouder.naam} is gekoppeld aan ${kind.naam}.` : `Koppeling met ${kind.naam} verwijderd.`); viewBeheer("gebruikers");
+  };
+  const kaarten = S.profielen.map(p => {
     const r = S.rondes.filter(x => x.speler_id === p.id);
     const goed = r.reduce((t,x)=>t+x.goed,0), tot = r.reduce((t,x)=>t+x.totaal,0);
-    const ik = p.id === S.user.id, beheerder = p.rol === "beheerder";
+    const ik = p.id === S.user.id, beheerder = p.rol === "beheerder", ouder = p.rol === "ouder";
     const st = beheerder ? null : puntenStand(p.id);
     const wwPaneel = h("div");
     const kop = [spelerNaam(p, 30),
       beheerder ? h("span",{class:"tag"},"beheerder") : null,
+      ouder ? h("span",{class:"sub"}, kinderenVan(p.id).map(profiel).filter(Boolean).map(k => k.naam).join(", ") || "nog geen kind gekoppeld") : null,
       metMfa.has(p.id) ? h("span",{class:"tag",title:"Tweestapsverificatie staat aan",style:"background:var(--good);border-color:var(--good);color:#04160A"},"🔒") : null,
-      h("span",{class:"sub"}, beheerder ? "" : `· ${r.length} quizzen` + (tot ? ` · ${Math.round(goed/tot*100)}%` : "")),
+      h("span",{class:"sub"}, beheerder || ouder ? "" : `· ${r.length} quizzen` + (tot ? ` · ${Math.round(goed/tot*100)}%` : "")),
       st && st.sinds > VERVAL.gratisDagen && !st.nuPauze && !st.opBodem ? h("span",{title:"Verliest punten"},"📉") : null];
     const inhoud = h("div",{class:"stack",style:"padding-top:10px"},
+      !beheerder && !ik ? h("div",{class:"row",style:"gap:16px"},
+        h("span",{style:"font-weight:600"},"Rol:"),
+        h("label",{class:"row",style:"gap:6px;cursor:pointer"}, h("input",{type:"radio",name:"rol-"+p.id,checked:!ouder,onchange:()=>zetRol(p,"speler",true)}), "Speler"),
+        h("label",{class:"row",style:"gap:6px;cursor:pointer"}, h("input",{type:"radio",name:"rol-"+p.id,checked:ouder,onchange:()=>zetRol(p,"ouder",false)}), "Ouder")) : null,
+      ouder ? h("label",{style:"display:flex;gap:10px;align-items:flex-start;cursor:pointer"},
+        h("input",{type:"checkbox",checked:!!p.telt_mee,style:"width:22px;height:22px",onchange:e=>zetRol(p,"ouder",e.target.checked)}),
+        h("span",null,"Telt mee in de punten", h("span",{class:"muted small"}," (staat op het scorebord en bij de records)"))) : null,
+      ouder ? h("div",null, h("div",{style:"font-weight:600;margin-bottom:4px"},"Ouder van:"),
+        S.profielen.filter(k => k.rol === "speler").length
+          ? h("div",{class:"typekeuze"}, S.profielen.filter(k => k.rol === "speler").map(k => h("label",null,
+              h("input",{type:"checkbox",checked:kinderenVan(p.id).includes(k.id),onchange:e=>koppel(p, k, e.target.checked)}), spelerNaam(k, 22))))
+          : h("p",{class:"muted small"},"Er zijn nog geen spelers.")) : null,
+      !ouder && !beheerder && ouderVan(p.id).length ? h("p",{class:"muted small",style:"margin:0"}, "Ouder(s): " + ouderVan(p.id).map(profiel).filter(Boolean).map(o => o.naam).join(", ")) : null,
       beheerder ? h("p",{class:"muted small"},"Beheerders doen niet mee aan het scorebord.")
         : h("div",{class:"row"},
             h("span",{class:"pill"},`🎮 ${r.length} quizzen`),
@@ -2176,7 +2230,7 @@ async function beheerGebruikers(){
             h("span",{class:"pill"},`✅ ${tot ? Math.round(goed/tot*100) + "%" : "–"} goed`),
             h("span",{class:"pill"},`⭐ ${nl(st.punten)} punten`)),
       !beheerder ? h("p",{class:"muted small",style:"margin:0"}, "Laatst gespeeld: " + (r[0] ? datum(r[0].gespeeld_op) : "nog nooit")) : null,
-      !ik ? h("label",{class:"row",style:"gap:10px;cursor:pointer"},
+      !ik ? h("label",{style:"display:flex;gap:10px;align-items:flex-start;cursor:pointer"},
         h("input",{type:"checkbox",checked:!!p.foto_toegestaan,style:"width:22px;height:22px",onchange:e=>fotoToestemming(p, e.target.checked)}),
         h("span",null,"Mag een profielfoto instellen", h("span",{class:"muted small"}," (bijvoorbeeld na toestemming van de ouders). Uitzetten haalt een bestaande foto meteen weg."))) : null,
       h("div",{class:"row",style:"gap:6px"},
@@ -2185,22 +2239,26 @@ async function beheerGebruikers(){
         !ik ? h("button",{class:"btn",onclick:()=>{ wwPaneel.replaceChildren(wachtwoordPaneel(p)); }},"🔑 Wachtwoord") : null,
         !ik && metMfa.has(p.id) ? h("button",{class:"btn",onclick:()=>mfaUit(p)},"🔓 Tweestap uit") : null),
       wwPaneel);
-    return klap("speler:" + p.id, kop, inhoud);
+    return { p, kaart: klap("speler:" + p.id, kop, inhoud) };
   });
+  const lijstVan = rol => kaarten.filter(x => rol === "ouder" ? x.p.rol === "ouder" : x.p.rol !== "ouder").map(x => x.kaart);
+  const ouders = lijstVan("ouder");
   return h("div",{class:"stack"},
     pauzeKaart(),
-    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👥 Spelers"), spelers),
-    klap("uitnodigen", [h("span",null, h("span",{class:"titel"},"✉️ Speler uitnodigen"), h("br"), h("span",{class:"sub"}, open.length ? `${open.length} uitnodiging(en) nog zonder account` : "Nodig een nieuwe speler uit"))],
+    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👥 Spelers"), lijstVan("speler")),
+    h("div",null, h("h3",{style:"margin:6px 0 10px"},"👨‍👩‍👧 Ouders"), ouders.length ? ouders : h("p",{class:"muted small"},"Nog geen ouders. Nodig iemand uit als ouder, of maak van een bestaand account een ouder via Rol.")),
+    klap("uitnodigen", [h("span",null, h("span",{class:"titel"},"✉️ Uitnodigen"), h("br"), h("span",{class:"sub"}, open.length ? `${open.length} uitnodiging(en) nog zonder account` : "Nodig een nieuwe speler of ouder uit"))],
       h("div",{class:"stack",style:"padding-top:10px"},
         h("p",{class:"muted small"},"Je mailprogramma opent met een kant-en-klaar bericht met de link naar de app. Daarna kiest de speler in de app ‘Account maken’ met precies dit e-mailadres."),
         h("div",{class:"row"},
           h("div",{style:"flex:2;min-width:220px"},h("label",{class:"f",for:"ie"},"E-mailadres"),invEmail),
-          h("div",{style:"flex:1;min-width:160px"},h("label",{class:"f",for:"in"},"Naam (voor in de mail)"),invNaam)),
+          h("div",{style:"flex:1;min-width:160px"},h("label",{class:"f",for:"in"},"Naam (voor in de mail)"),invNaam),
+          h("div",{style:"min-width:120px"},h("label",{class:"f",for:"ir"},"Als"),invRol)),
         invMsg,
         h("div",null,h("button",{class:"btn green",onclick:nodigUit},"Uitnodigen")),
         open.length ? h("div",null, h("h3",{style:"margin-top:10px"},`Nog geen account (${open.length})`),
           open.map(u => h("div",{class:"inv"},
-            h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email), h("div",{class:"muted small"}, (u.naam ? u.email + " · " : "") + "uitgenodigd op " + datum(u.aangemaakt))),
+            h("div",{style:"flex:1;min-width:200px"}, h("strong",null,u.naam || u.email), u.rol === "ouder" ? h("span",{class:"tag",style:"margin-left:6px"},"ouder") : null, h("div",{class:"muted small"}, (u.naam ? u.email + " · " : "") + "uitgenodigd op " + datum(u.aangemaakt))),
             h("button",{class:"btn",onclick:()=>mailUitnodiging(u.email, u.naam)},"Opnieuw mailen"),
             h("button",{class:"btn link",onclick:async()=>{ if (!confirm(`Uitnodiging voor ${u.email} intrekken?`)) return;
               const { error } = await sb.from("uitnodigingen").delete().eq("email", u.email); if (error) return toast(fout(error)); viewBeheer("gebruikers"); }},"Intrekken")))) : null),
@@ -2244,7 +2302,8 @@ function viewOverzicht(){
     h("p",{class:"muted small"},"Tik op een speler voor de details per quiz en per vraag.")));
 }
 async function viewOverzichtSpeler(id){
-  if (!isBeheerder()) return viewMfa(location.hash);
+  const magOuder = isOuder() && kinderenVan(S.user.id).includes(id);
+  if (!isBeheerder() && !magOuder) return echtBeheerder() ? viewMfa(location.hash) : go("#");
   const p = profiel(id); if (!p) return go("#overzicht");
   laden("Overzicht maken…");
   const [rq, vq] = await Promise.all([
@@ -2297,7 +2356,7 @@ async function viewOverzichtSpeler(id){
     owRijen.some(x => x.fams && x.nooit/x.fams < .2) ? h("p",{class:"note warn"},"Bij sommige quizzen heeft deze speler bijna alle vragen al gehad. Maak daar meer vragen of een andere vraagstelling, zodat de quiz fris blijft.") : null,
     h("div",{class:"card scroll"}, h("h3",null,"❌ Gaan het vaakst fout"), moeilijk.length ? vraagTabel(moeilijk, true) : h("p",{class:"muted"},"Nog geen foute antwoorden.")),
     h("div",{class:"card scroll"}, h("h3",null,"🔁 Komen het vaakst terug"), vaak.length ? vraagTabel(vaak, false) : h("p",{class:"muted"},"Nog niets gespeeld.")),
-    h("button",{class:"btn",onclick:()=>go("#beheer/gebruikers")},"Terug naar Gebruikers")));
+    h("button",{class:"btn",onclick:()=>go(isBeheerder() ? "#beheer/gebruikers" : "#")}, isBeheerder() ? "Terug naar Gebruikers" : "Terug")));
 }
 
 /* ============ confetti ============ */
